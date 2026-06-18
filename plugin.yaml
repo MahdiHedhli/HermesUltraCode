@@ -6,7 +6,7 @@ description: >-
   may only append tightening directives or block — tighten-only and fail-closed, with
   an immutable, secret-redacted audit trail for ISO 27001 evidence. Hooks pre_tool_call
   (block) plus tool_request middleware (tighten) on delegate_task, and exposes read-only
-  gate-audit query tools. Ships the ponytail minimalism ruleset as a companion skill.
+  gate-audit query tools. Ships the neckbeard minimalism ruleset as a companion skill.
 author: "HermesUltraCode (MahdiHedhli)"
 kind: standalone
 

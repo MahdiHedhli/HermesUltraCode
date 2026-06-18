@@ -173,7 +173,7 @@ class OpenRouterProvider(Provider):
     """OpenRouter-routed model. Network call lives behind ``complete``; unit tests
     mock it. Requires an API key at call time or it fails closed (no silent pass).
 
-    ponytail: thin urllib client, no SDK dependency (stdlib does it -> use it).
+    neckbeard: thin urllib client, no SDK dependency (stdlib does it -> use it).
     Upgrade path: the official openrouter/openai SDK if streaming/tool-use is needed.
     """
 

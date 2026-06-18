@@ -2,7 +2,7 @@
 read API surfaces (invariant: secrets redacted on write; the audit trail is ISO
 evidence, not a credential leak).
 
-ponytail: regex-based redactor over a curated pattern set. Upgrade path is a
+neckbeard: regex-based redactor over a curated pattern set. Upgrade path is a
 detect-secrets / entropy-based scanner if the corpus widens; the seam is
 ``redact()`` + ``REDACTORS`` so swapping the engine touches one module.
 """

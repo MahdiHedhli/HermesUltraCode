@@ -155,8 +155,8 @@ class ReadApiViewsTest(unittest.TestCase):
         self.assertIn("fail_closed_count", data)
         self.assertIn("benchmark", data)
 
-    def test_ponytail_view(self):
-        r = handle(self.ctx, "GET", "/api/ponytail", hdr())
+    def test_neckbeard_view(self):
+        r = handle(self.ctx, "GET", "/api/neckbeard", hdr())
         data = json.loads(r.body)
         self.assertIn("debt_ledger", data)
         self.assertIn("protected_set_violations", data)

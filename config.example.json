@@ -16,8 +16,8 @@
   "reviewer_timeout_s": 30.0,
   "max_directives": 12,
   "store_path": "gate_audit.sqlite3",
-  "ponytail_orchestrator_mode": "full",
-  "ponytail_worker_mode": "full",
+  "neckbeard_orchestrator_mode": "full",
+  "neckbeard_worker_mode": "full",
   "tiering": {
     "elevated_file_threshold": 10,
     "elevated_cost_threshold_usd": 1.0,

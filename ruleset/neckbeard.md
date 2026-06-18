@@ -1,4 +1,8 @@
-Ponytail ruleset (vendored). Before writing code, stop at the first rung that holds:
+Neckbeard ruleset (vendored). Forked from the Ponytail ruleset (MIT) and renamed;
+the marketplace plugin and Node lifecycle hooks are deliberately NOT carried over —
+this is vendored text only. Credit and thanks to the original Ponytail authors.
+
+Before writing code, stop at the first rung that holds:
   1. Does this need to exist?   -> no: skip it (YAGNI)
   2. Stdlib does it?            -> use it
   3. Native platform feature?   -> use it
@@ -17,5 +21,5 @@ Extended protected set (compliance evidence, never pruned as "unnecessary"):
   - idempotency
   - retries / backoff with limits
 
-Mark every shortcut taken with a `ponytail:` comment naming its upgrade path.
+Mark every shortcut taken with a `neckbeard:` comment naming its upgrade path.
 This ruleset applies to the orchestrator and the workers. It does NOT apply to the reviewer.

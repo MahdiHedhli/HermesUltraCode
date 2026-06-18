@@ -2,10 +2,12 @@
 
 Read-only observability panel for the gate, served by `server/read_api.py`.
 
-## Why server-rendered, not the React SPA (ponytail decision)
+## Why server-rendered, not the React SPA (neckbeard decision)
+
+> Neckbeard is the project's minimalism ruleset, **forked from Ponytail** (MIT) and renamed.
 
 The spec names **React 19 + Vite + Tailwind** as the dashboard stack *and* adds a
-ponytail note: *"if the views stay this simple, server-rendered with minimal JS is
+neckbeard note: *"if the views stay this simple, server-rendered with minimal JS is
 acceptable. Apply the ladder."*
 
 Applying the ladder:
@@ -18,10 +20,10 @@ Applying the ladder:
 So the shipped dashboard is **hand-written HTML + one vanilla JS file + one CSS
 file**, served from this directory. It is dependency-free, has no build step, and is
 fully exercisable in tests against the read API. This is the lean choice the spec
-explicitly authorizes, and it demonstrates the ponytail discipline the gate is built
+explicitly authorizes, and it demonstrates the neckbeard discipline the gate is built
 to enforce.
 
-`ponytail: server-rendered dashboard instead of a React SPA. Upgrade path — when the
+`neckbeard: server-rendered dashboard instead of a React SPA. Upgrade path — when the
 views grow interactive state (filtering, live graphs, drill-downs beyond a modal),
 scaffold a React 19 + Vite + Tailwind app here that consumes the same /api/* surface;
 the read API and its JSON shapes do not change.`
@@ -30,7 +32,7 @@ the read API and its JSON shapes do not change.`
 
 - `dashboard.html` — the shell (served at `/`).
 - `app.js` — fetches `/api/*` with the `X-Gate-Session-Token` header; renders Live,
-  Queue, Audit (with JSON/CSV export), Ponytail (debt ledger + protected-set
+  Queue, Audit (with JSON/CSV export), Neckbeard (debt ledger + protected-set
   blocks), Metrics, and the fail-closed banner. Token is held in memory only.
 - `styles.css` — dark theme, tier/decision badges.
 

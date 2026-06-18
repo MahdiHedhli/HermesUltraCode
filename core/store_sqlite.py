@@ -1,4 +1,4 @@
-"""Default audit store: stdlib sqlite3 (ponytail rung 2 — stdlib does it).
+"""Default audit store: stdlib sqlite3 (neckbeard rung 2 — stdlib does it).
 
 Immutability is enforced structurally: UPDATE and DELETE on the audit table raise
 via SQLite triggers, on top of the interface exposing no mutator but ``append``.
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS dispatch_audit (
     fail_closed_reason TEXT NOT NULL DEFAULT '',
     dissent_logged    INTEGER NOT NULL DEFAULT 0,
     escalated         INTEGER NOT NULL DEFAULT 0,
-    ponytail_block    INTEGER NOT NULL DEFAULT 0,
+    neckbeard_block    INTEGER NOT NULL DEFAULT 0,
     latency_ms        INTEGER NOT NULL DEFAULT 0,
     added_tokens      INTEGER NOT NULL DEFAULT 0
 );
@@ -102,7 +102,7 @@ class SqliteAuditStore(AuditStore):
             "fail_closed_reason": redact(record.fail_closed_reason),
             "dissent_logged": int(bool(record.dissent_logged)),
             "escalated": int(bool(record.escalated)),
-            "ponytail_block": int(bool(record.ponytail_block)),
+            "neckbeard_block": int(bool(record.neckbeard_block)),
             "latency_ms": int(record.latency_ms),
             "added_tokens": int(record.added_tokens),
         }
@@ -188,7 +188,7 @@ def _row_to_record(row: sqlite3.Row) -> DispatchRecord:
         fail_closed_reason=row["fail_closed_reason"],
         dissent_logged=bool(row["dissent_logged"]),
         escalated=bool(row["escalated"]),
-        ponytail_block=bool(row["ponytail_block"]),
+        neckbeard_block=bool(row["neckbeard_block"]),
         latency_ms=row["latency_ms"],
         added_tokens=row["added_tokens"],
     )

@@ -1,16 +1,16 @@
 # HermesUltraCode
 
-A self-contained **pre-dispatch prompt gate**, **ponytail generation discipline**, and
+A self-contained **pre-dispatch prompt gate**, **neckbeard generation discipline**, and
 **observability dashboard** that sits on top of an existing
 [Hermes Agent](https://nousresearch.com/) (Nous Research) orchestrator/worker setup.
 
 The Hermes runtime, the orchestrator agent, and the worker subagent pool already exist
 — this repo does **not** rebuild them. It builds the gate that vets orchestrator-authored
-prompts *before they reach workers*, the ponytail minimalism discipline applied to
+prompts *before they reach workers*, the neckbeard minimalism discipline applied to
 generation, and a read-only dashboard that makes the whole thing observable and
 ISO 27001:2022-auditable.
 
-The gate's own code is built under the ponytail ladder: stdlib-only core, zero runtime
+The gate's own code is built under the neckbeard ladder: stdlib-only core, zero runtime
 dependencies, offline-testable with the model provider mocked.
 
 ```
@@ -39,15 +39,15 @@ These are the design, enforced in code, not by trusting the model:
 4. **The release decision lives in code.** The dispatcher refuses to release until a
    structured, present, parseable, passing verdict exists. No agent negotiates release
    in chat. — `core/gate.py:Gate.review_and_dispatch`
-5. **Lift, don't fork.** Ponytail ships as vendored ruleset text — no marketplace plugin,
+5. **Lift, don't fork.** Neckbeard ships as vendored ruleset text — no marketplace plugin,
    no Node hooks. The dashboard is a standalone panel, not a fork of the Hermes SPA.
-   — `ruleset/ponytail.md`, `web/`
-6. **Ponytail runs on the orchestrator and workers, never the reviewer.** Minimalism is a
-   generation-time bias. — `core/ponytail.py:inject_ruleset`
-7. **The protected set is extended for compliance.** Ponytail's carve-outs (security,
+   — `ruleset/neckbeard.md`, `web/`
+6. **Neckbeard runs on the orchestrator and workers, never the reviewer.** Minimalism is a
+   generation-time bias. — `core/neckbeard.py:inject_ruleset`
+7. **The protected set is extended for compliance.** Neckbeard's carve-outs (security,
    input validation, data-loss, accessibility) **plus** observability/structured logging,
    audit logging, idempotency, and retries/backoff. Never pruned — they are the ISO 27001
-   evidence trail. — `ruleset/ponytail.md`, `core/gate.py`
+   evidence trail. — `ruleset/neckbeard.md`, `core/gate.py`
 8. **The prompt-under-review is untrusted data.** It may carry text from issues, PRs, or
    UX feedback. The reviewer evaluates embedded instructions *as data*; it never executes
    them. — `core/gate.py:build_review_prompt`
@@ -162,7 +162,7 @@ Hermes's own `PluginManager`/`PluginContext`:
 | **Tighten** | `tool_request` middleware on `delegate_task` (runs first; rewrites args) | rewrites the subagent's `goal` → base verbatim + appended directives |
 | **Block** | `pre_tool_call` hook on `delegate_task` (returns `{"action":"block"}`) | refuses a dispatch the gate didn't release; **fail-closed if unconfigured** |
 | **Observe** | `register_tool` (`gate_metrics`, `gate_audit_query`, `gate_recent_verdicts`) | the Hermes agent can answer "show me today's gate verdicts" |
-| **Ponytail** | `register_skill('ponytail', …)` + `skills/ponytail/SKILL.md` | the minimalism ruleset as an installable skill |
+| **Neckbeard** | `register_skill('neckbeard', …)` + `skills/neckbeard/SKILL.md` | the minimalism ruleset as an installable skill |
 | **Dashboard** | `register_cli_command('ultracode-dashboard', …)` | `hermes ultracode-dashboard` launches the read API |
 
 Both seams receive the same `tool_call_id`, so the gate (a reviewer model call) runs
@@ -171,11 +171,11 @@ and **always** installs the `pre_tool_call` hook: if the reviewer can't be confi
 its lab matches the orchestrator's), the hook blocks every `delegate_task` rather than let
 a worker run un-vetted (invariant 1).
 
-The ponytail ruleset is independently publishable as a skill:
+The neckbeard ruleset is independently publishable as a skill:
 
 ```bash
-hermes skills install MahdiHedhli/HermesUltraCode/skills/ponytail   # or:
-hermes skills publish skills/ponytail --to github --repo <owner/skills>
+hermes skills install MahdiHedhli/HermesUltraCode/skills/neckbeard   # or:
+hermes skills publish skills/neckbeard --to github --repo <owner/skills>
 ```
 
 > `adapters/hermes_hook.py` (the `HermesDispatchGate` mapping) and `__init__.py` (the
@@ -183,13 +183,17 @@ hermes skills publish skills/ponytail --to github --repo <owner/skills>
 > portable and Hermes-free. To embed the gate without the plugin, drive
 > `core.gate.Gate.review_and_dispatch(goal, meta)` directly.
 
-## Ponytail discipline
+## Neckbeard discipline
 
-The vendored ruleset (`ruleset/ponytail.md`, MIT, **no** marketplace plugin, **no** Node
+> **Credit:** Neckbeard is a fork of the **Ponytail** ruleset (MIT), renamed for this
+> project — only the vendored *text* was lifted, nothing executable. Thanks to the
+> original Ponytail authors.
+
+The vendored ruleset (`ruleset/neckbeard.md`, MIT, **no** marketplace plugin, **no** Node
 hooks) is injected into orchestrator and worker prompt assembly via
-`core/ponytail.inject_ruleset` — and **refused** for the reviewer. Every shortcut in this
-codebase is tagged with a `ponytail:` comment naming its upgrade path; those markers are
-harvested into the dashboard's **debt ledger** (`core/ponytail.harvest_markers`).
+`core/neckbeard.inject_ruleset` — and **refused** for the reviewer. Every shortcut in this
+codebase is tagged with a `neckbeard:` comment naming its upgrade path; those markers are
+harvested into the dashboard's **debt ledger** (`core/neckbeard.harvest_markers`).
 
 Applied to this repo, the ladder produced: a stdlib-only core, a `http.server`-based read
 API (no Flask/FastAPI), a server-rendered dashboard (no React build step — see
@@ -203,7 +207,7 @@ path), and SQLite for the audit store (no new dependency).
 - **Gate panel** (per dispatch) — verdict, round count, the appended directives (the
   actual "tighten"), rationale, reviewer model, final decision.
 - **Audit trail** — the immutable log, filterable by tier/verdict/date, JSON + CSV export.
-- **Ponytail** — the debt ledger and protected-set violations the gate blocked.
+- **Neckbeard** — the debt ledger and protected-set violations the gate blocked.
 - **Metrics** — first-pass worker success gate-on vs off, guideline-violation rate, gate
   latency p50/p95, added token cost per dispatch.
 - **Fail-closed counter** — dispatches blocked due to reviewer error/timeout/quota, so
@@ -220,7 +224,7 @@ surfaced, and refuses to bind a non-loopback host without a token.
 One immutable row per dispatch (`core/store.py`, default `core/store_sqlite.py`):
 `{id, ts, base_prompt, added_directives, dispatched_prompt, verdict, tier, reviewer_model,
 decision, round_count, …}` plus observability fields (latency, added tokens) and
-compliance flags (fail_closed, dissent_logged, escalated, ponytail_block). Secrets are
+compliance flags (fail_closed, dissent_logged, escalated, neckbeard_block). Secrets are
 redacted on write (`core/redact.py`). UPDATE/DELETE are blocked by SQLite triggers —
 append-only by construction. Exportable to JSON and CSV. Storage is behind an interface;
 a Cloudflare D1 adapter is a later swap against the same seam (the seam is left, not built).
@@ -231,16 +235,16 @@ a Cloudflare D1 adapter is a later swap against the same seam (the seam is left,
 hermesultracode/                         # repo root = the Hermes plugin
   __init__.py    plugin.yaml             # Hermes plugin entry: register(ctx) + manifest
   core/        gate.py verdict.py tighten.py tiering.py providers.py
-               store.py store_sqlite.py redact.py config.py ponytail.py
+               store.py store_sqlite.py redact.py config.py neckbeard.py
   adapters/    hermes_hook.py            # HermesDispatchGate: tool_request + pre_tool_call
-  ruleset/     ponytail.md               # vendored, MIT, no marketplace plugin/hooks
-  skills/      ponytail/SKILL.md         # ponytail as an installable Hermes skill
+  ruleset/     neckbeard.md               # vendored, MIT, no marketplace plugin/hooks
+  skills/      neckbeard/SKILL.md         # neckbeard as an installable Hermes skill
   server/      read_api.py views.py mcp_server.py __main__.py
   web/         dashboard.html app.js styles.css README.md
   bench/       harness.py smoke_hermes.py tasks.example.json
   tests/       test_tighten.py test_failclosed.py test_tiering.py
                test_provider_distinct.py test_round_cap.py test_store.py
-               test_gate.py test_redact.py test_ponytail.py test_read_api.py
+               test_gate.py test_redact.py test_neckbeard.py test_read_api.py
                test_adapter.py test_bench.py test_mcp.py test_plugin.py helpers.py
   config.example.json  pyproject.toml  README.md
 ```
@@ -256,7 +260,7 @@ hermesultracode/                         # repo root = the Hermes plugin
 | 5 | Round cap honored (default 2); tier-specific fallback fires | `test_round_cap.py` |
 | 6 | Tiering classifies merge/protected/trivial correctly | `test_tiering.py` |
 | 7 | Immutable audit row; secrets redacted; JSON + CSV export | `test_store.py`, `test_redact.py` |
-| 8 | Ponytail ruleset present + injected; extended protected set; no plugin/hooks | `test_ponytail.py` |
+| 8 | Neckbeard ruleset present + injected; extended protected set; no plugin/hooks | `test_neckbeard.py` |
 | 9 | Dashboard views + read API security (token/CORS/Host/redaction) | `test_read_api.py` |
 | 10 | Benchmark runs gate-on vs gate-off, emits four metrics | `test_bench.py` |
 | 11 | Test suite passes; invariant tests present and green | `python -m unittest discover -s tests` |

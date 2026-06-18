@@ -143,7 +143,7 @@ def parse_verdict(raw: Any, *, default_round: int = 0, default_model: str = "") 
 
 
 def _strip_code_fence(text: str) -> str:
-    """Tolerate a ```json ... ``` fence around the JSON body. ponytail: minimal,
+    """Tolerate a ```json ... ``` fence around the JSON body. neckbeard: minimal,
     upgrade path is a real markdown/JSON extractor if reviewers wander further."""
     if not text.startswith("```"):
         return text

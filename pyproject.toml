@@ -5,15 +5,15 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hermesultracode"
 version = "0.1.0"
-description = "Pre-dispatch prompt gate, ponytail discipline, and observability dashboard for a Hermes orchestrator."
+description = "Pre-dispatch prompt gate, neckbeard discipline, and observability dashboard for a Hermes orchestrator."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "HermesUltraCode" }]
-keywords = ["hermes", "agent", "gate", "prompt-review", "ponytail", "iso27001"]
+keywords = ["hermes", "agent", "gate", "prompt-review", "neckbeard", "iso27001"]
 
 # Runtime dependencies: NONE. The gate core, store (sqlite3), redaction, read API
-# (http.server) and MCP server (json) are all Python stdlib (ponytail rung 2).
+# (http.server) and MCP server (json) are all Python stdlib (neckbeard rung 2).
 # This keeps the core offline-testable and ISO-clean — no supply-chain surface.
 dependencies = []
 

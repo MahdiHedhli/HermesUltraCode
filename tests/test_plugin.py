@@ -1,5 +1,5 @@
 """The Hermes plugin packaging: register(ctx) wires the real seams and fails closed;
-the plugin.yaml manifest and ponytail SKILL.md conform to the Hermes formats."""
+the plugin.yaml manifest and neckbeard SKILL.md conform to the Hermes formats."""
 
 import importlib.util
 import json
@@ -107,7 +107,7 @@ class PluginRegisterTest(unittest.TestCase):
         self._set_reviewer()
         ctx = FakeCtx()
         self.plugin.register(ctx)
-        self.assertIn("ponytail", ctx.skills)
+        self.assertIn("neckbeard", ctx.skills)
         self.assertIn("ultracode-dashboard", ctx.cli)
 
     def test_same_lab_reviewer_falls_back_to_failclosed(self):
@@ -140,11 +140,11 @@ class ManifestAndSkillTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(REPO_ROOT, "__init__.py")))
         self.assertTrue(os.path.isfile(os.path.join(REPO_ROOT, "plugin.yaml")))
 
-    def test_ponytail_skill_frontmatter(self):
-        with open(os.path.join(REPO_ROOT, "skills", "ponytail", "SKILL.md"), encoding="utf-8") as fh:
+    def test_neckbeard_skill_frontmatter(self):
+        with open(os.path.join(REPO_ROOT, "skills", "neckbeard", "SKILL.md"), encoding="utf-8") as fh:
             text = fh.read()
         self.assertTrue(text.startswith("---"))
-        self.assertIn("name: ponytail", text)
+        self.assertIn("name: neckbeard", text)
         self.assertIn("description:", text)
         self.assertIn("version:", text)
         self.assertIn("platforms:", text)

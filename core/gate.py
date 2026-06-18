@@ -16,7 +16,7 @@ Invariants enforced here, by construction, not by trusting the model:
      success. The word "adversarial" never appears in its role/system prompt.
   3. Tighten-only. base is immutable; the reviewer may only append or block.
   4. The release decision lives in code (this module), never in chat.
-  6. Ponytail runs on orchestrator + workers, NEVER the reviewer.
+  6. Neckbeard runs on orchestrator + workers, NEVER the reviewer.
   8. The prompt-under-review is untrusted DATA; embedded instructions are evaluated,
      never executed.
 """
@@ -56,7 +56,7 @@ log = logging.getLogger("hermesultracode.gate")
 
 # ---------------------------------------------------------------------------
 # Reviewer system prompt. Neutral, not adversarial (invariant 2). Tighten-only
-# (invariant 3). Untrusted-data framing (invariant 8). Ponytail explicitly does
+# (invariant 3). Untrusted-data framing (invariant 8). Neckbeard explicitly does
 # NOT apply here (invariant 6).
 # ---------------------------------------------------------------------------
 
@@ -153,7 +153,7 @@ class DispatchResult:
     fail_closed: bool = False
     fail_closed_reason: str = ""
     dissent_logged: bool = False
-    ponytail_block: bool = False
+    neckbeard_block: bool = False
     reviewer_model: str = ""
     latency_ms: int = 0
     added_tokens: int = 0
@@ -315,7 +315,7 @@ class Gate:
                 return self._fail_closed(
                     base_prompt, meta, tier, round_count, accumulated,
                     f"tighten violation: {exc}",
-                    ponytail_block=False,
+                    neckbeard_block=False,
                 )
 
             if verdict.is_pass:
@@ -335,7 +335,7 @@ class Gate:
     def _handle_block(self, base_prompt, meta, tier, verdict, round_count, accumulated) -> DispatchResult:
         """A clean BLOCK verdict. Do not dispatch. Escalate for escalating tiers."""
         escalated = tier in tiering.ESCALATING_TIERS
-        ponytail_block = _is_protected_set_block(verdict)
+        neckbeard_block = _is_protected_set_block(verdict)
         decision = DECISION_ESCALATED if escalated else DECISION_BLOCKED
         return self._finish(
             base_prompt=base_prompt,
@@ -353,12 +353,12 @@ class Gate:
             fail_closed=False,
             fail_closed_reason="",
             dissent_logged=False,
-            ponytail_block=ponytail_block,
+            neckbeard_block=neckbeard_block,
             reviewer_model=verdict.reviewer_model,
         )
 
     def _fail_closed(
-        self, base_prompt, meta, tier, round_count, accumulated, reason, ponytail_block=False
+        self, base_prompt, meta, tier, round_count, accumulated, reason, neckbeard_block=False
     ) -> DispatchResult:
         """Reviewer error/timeout/quota/empty/unparseable, or a tighten violation.
         NEVER a pass. Block, and escalate for elevated/merge_adjacent (invariant 1)."""
@@ -384,7 +384,7 @@ class Gate:
             fail_closed=True,
             fail_closed_reason=reason,
             dissent_logged=False,
-            ponytail_block=ponytail_block,
+            neckbeard_block=neckbeard_block,
             reviewer_model=self.reviewer.model,
         )
 
@@ -416,7 +416,7 @@ class Gate:
                 fail_closed=False,
                 fail_closed_reason="",
                 dissent_logged=True,
-                ponytail_block=False,
+                neckbeard_block=False,
                 reviewer_model=(last_verdict.reviewer_model if last_verdict else self.reviewer.model),
             )
 
@@ -467,7 +467,7 @@ class Gate:
             fail_closed=False,
             fail_closed_reason="",
             dissent_logged=dissent_logged,
-            ponytail_block=False,
+            neckbeard_block=False,
             reviewer_model=verdict.reviewer_model,
         )
 
@@ -497,7 +497,7 @@ class Gate:
             fail_closed_reason=kw["fail_closed_reason"],
             dissent_logged=kw["dissent_logged"],
             escalated=kw["escalated"],
-            ponytail_block=kw["ponytail_block"],
+            neckbeard_block=kw["neckbeard_block"],
         )
         result = DispatchResult(
             released=kw["released"],
@@ -514,7 +514,7 @@ class Gate:
             fail_closed=kw["fail_closed"],
             fail_closed_reason=kw["fail_closed_reason"],
             dissent_logged=kw["dissent_logged"],
-            ponytail_block=kw["ponytail_block"],
+            neckbeard_block=kw["neckbeard_block"],
             reviewer_model=kw["reviewer_model"],
         )
         return record, result
@@ -523,7 +523,7 @@ class Gate:
 def _estimate_added_tokens(record: DispatchRecord) -> int:
     """Cheap proxy (chars/4) for the tokens the gate appended beyond the base.
 
-    ponytail: a heuristic, not a tokenizer (rung 6: the minimum that works). Upgrade
+    neckbeard: a heuristic, not a tokenizer (rung 6: the minimum that works). Upgrade
     path: tiktoken / the provider's token-count API if billing-grade accuracy is needed.
     """
     if not record.dispatched_prompt:
@@ -552,6 +552,6 @@ _PROTECTED_BLOCK_HINTS = (
 
 def _is_protected_set_block(verdict: Verdict) -> bool:
     """True if a block was specifically about the extended protected set, so the
-    dashboard's ponytail view can surface protected-set violations the gate blocked."""
+    dashboard's neckbeard view can surface protected-set violations the gate blocked."""
     text = (verdict.rationale + " " + " ".join(verdict.added_directives)).lower()
     return any(h in text for h in _PROTECTED_BLOCK_HINTS)

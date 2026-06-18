@@ -1,19 +1,22 @@
 ---
-name: ponytail
-description: "Ponytail minimalism for code generation — climb the ladder (YAGNI → stdlib → platform → installed dep → one line → minimum that works) while never pruning the protected set. Applies to the orchestrator and workers, never to a reviewer."
+name: neckbeard
+description: "Neckbeard minimalism for code generation — climb the ladder (YAGNI → stdlib → platform → installed dep → one line → minimum that works) while never pruning the protected set. Applies to the orchestrator and workers, never to a reviewer."
 version: 1.0.0
 platforms: [linux, macos, windows]
 metadata:
   hermes:
-    tags: [ponytail, minimalism, yagni, code-generation, lazy-not-negligent, iso27001, compliance]
+    tags: [neckbeard, minimalism, yagni, code-generation, lazy-not-negligent, iso27001, compliance]
     related_skills: []
 ---
 
-# Ponytail ruleset (vendored)
+# Neckbeard ruleset (vendored)
 
 Apply this as a **generation-time** bias when writing code. It makes solutions lean
 without making them negligent. It is vendored text (MIT) — not a marketplace plugin and
 not a set of Node lifecycle hooks.
+
+> Neckbeard is **forked from the Ponytail ruleset** (MIT) and renamed; only the text was
+> lifted. Credit to the original Ponytail authors.
 
 Before writing code, stop at the first rung that holds:
 
@@ -42,7 +45,7 @@ These are the ISO 27001:2022 evidence trail. Treat them as required, not optiona
 
 ## How to apply
 
-- Mark every shortcut you take with a `ponytail:` comment naming its upgrade path, so the
+- Mark every shortcut you take with a `neckbeard:` comment naming its upgrade path, so the
   debt is visible and can be harvested into a ledger.
 - Prefer the lowest rung that fully solves the problem; do not add layers, abstractions,
   dependencies, or configurability that nothing yet needs.

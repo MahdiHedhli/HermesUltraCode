@@ -1,5 +1,5 @@
 /* HermesUltraCode dashboard — minimal vanilla JS over the read API.
- * ponytail: no framework (rung 1 — these read-only views don't need React yet).
+ * neckbeard: no framework (rung 1 — these read-only views don't need React yet).
  * Upgrade path: the React 19 + Vite + Tailwind SPA noted in web/README.md.
  * The session token is held only in memory and sent in the X-Gate-Session-Token
  * header; it is never written to storage or the URL. */
@@ -83,8 +83,8 @@
     wirePanelLinks();
   }
 
-  async function loadPonytail() {
-    const d = await api("/api/ponytail");
+  async function loadNeckbeard() {
+    const d = await api("/api/neckbeard");
     $("#debt-table tbody").innerHTML = (d.debt_ledger || []).map((it) =>
       `<tr><td><code>${esc(it.file)}</code></td><td>${esc(it.line)}</td><td>${esc(it.note)}</td></tr>`
     ).join("") || `<tr><td colspan="3" class="muted">no debt markers</td></tr>`;
@@ -149,7 +149,7 @@
     $$(".link-panel").forEach((a) => a.onclick = (ev) => { ev.preventDefault(); openPanel(a.dataset.id); });
   }
 
-  const LOADERS = { live: loadLive, queue: loadQueue, audit: loadAudit, ponytail: loadPonytail, metrics: loadMetrics };
+  const LOADERS = { live: loadLive, queue: loadQueue, audit: loadAudit, neckbeard: loadNeckbeard, metrics: loadMetrics };
   let current = "live";
 
   async function refresh() {

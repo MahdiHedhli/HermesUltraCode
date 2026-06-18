@@ -43,7 +43,7 @@ COLUMNS: tuple[str, ...] = (
     "fail_closed_reason",
     "dissent_logged",
     "escalated",
-    "ponytail_block",
+    "neckbeard_block",
     "latency_ms",
     "added_tokens",
 )
@@ -70,8 +70,8 @@ class DispatchRecord:
     dissent_logged: bool = False
     escalated: bool = False
     # True when the block was specifically a protected-set / compliance violation,
-    # surfaced on the dashboard ponytail view.
-    ponytail_block: bool = False
+    # surfaced on the dashboard neckbeard view.
+    neckbeard_block: bool = False
     # Observability (extended protected set): wall-clock of the whole review +
     # a cheap proxy for the tokens the gate added on top of the base.
     latency_ms: int = 0
@@ -86,7 +86,7 @@ class DispatchRecord:
         """Flat, CSV-friendly view (lists -> JSON strings, bools -> 0/1)."""
         d = self.to_row()
         d["added_directives"] = json.dumps(d["added_directives"], ensure_ascii=False)
-        for b in ("fail_closed", "dissent_logged", "escalated", "ponytail_block"):
+        for b in ("fail_closed", "dissent_logged", "escalated", "neckbeard_block"):
             d[b] = int(bool(d[b]))
         return d
 

@@ -1,6 +1,6 @@
 """Gate configuration + startup validation.
 
-ponytail: stdlib only — a dataclass loaded from a dict / JSON / env. No pydantic,
+neckbeard: stdlib only — a dataclass loaded from a dict / JSON / env. No pydantic,
 no PyYAML (rung 1: doesn't need to exist; rung 2: stdlib does it). Upgrade path is
 pydantic-settings if config grows a schema worth validating richly.
 
@@ -25,8 +25,8 @@ from .providers import (
 )
 from .tiering import TieringConfig
 
-PONYTAIL_LITE = "lite"
-PONYTAIL_FULL = "full"
+NECKBEARD_LITE = "lite"
+NECKBEARD_FULL = "full"
 
 
 @dataclass(frozen=True)
@@ -56,8 +56,8 @@ class GateConfig:
     max_directive_len: int = 2000
     tiering: TieringConfig = field(default_factory=TieringConfig)
     store_path: str = "gate_audit.sqlite3"
-    ponytail_orchestrator_mode: str = PONYTAIL_FULL  # lite|full, full default
-    ponytail_worker_mode: str = PONYTAIL_FULL  # full on workers
+    neckbeard_orchestrator_mode: str = NECKBEARD_FULL  # lite|full, full default
+    neckbeard_worker_mode: str = NECKBEARD_FULL  # full on workers
     read_api: ReadApiConfig = field(default_factory=ReadApiConfig)
     # cheap model used for trivial-tier reviews (optional; None -> skip review).
     cheap_reviewer_provider: Provider | None = None
@@ -65,12 +65,12 @@ class GateConfig:
     def __post_init__(self) -> None:
         if self.round_cap < 1:
             raise ProviderConfigError("round_cap must be >= 1")
-        if self.ponytail_orchestrator_mode not in (PONYTAIL_LITE, PONYTAIL_FULL):
-            raise ProviderConfigError("ponytail_orchestrator_mode must be lite|full")
-        if self.ponytail_worker_mode != PONYTAIL_FULL:
+        if self.neckbeard_orchestrator_mode not in (NECKBEARD_LITE, NECKBEARD_FULL):
+            raise ProviderConfigError("neckbeard_orchestrator_mode must be lite|full")
+        if self.neckbeard_worker_mode != NECKBEARD_FULL:
             # Workers are always full (invariant 6: minimalism is generation-time on
             # orchestrator+workers; workers stay strict).
-            raise ProviderConfigError("ponytail_worker_mode must be 'full' for workers")
+            raise ProviderConfigError("neckbeard_worker_mode must be 'full' for workers")
         # Invariant 6 / startup rule — the headline check.
         validate_distinct_providers(self.orchestrator_provider, self.reviewer_provider)
 
@@ -137,8 +137,8 @@ def load_config(source: dict[str, Any] | str) -> GateConfig:
         max_directive_len=int(data.get("max_directive_len", 2000)),
         tiering=tiering,
         store_path=data.get("store_path", "gate_audit.sqlite3"),
-        ponytail_orchestrator_mode=data.get("ponytail_orchestrator_mode", PONYTAIL_FULL),
-        ponytail_worker_mode=data.get("ponytail_worker_mode", PONYTAIL_FULL),
+        neckbeard_orchestrator_mode=data.get("neckbeard_orchestrator_mode", NECKBEARD_FULL),
+        neckbeard_worker_mode=data.get("neckbeard_worker_mode", NECKBEARD_FULL),
         read_api=read_api,
         cheap_reviewer_provider=cheap_provider,
     )

@@ -2,7 +2,7 @@
 today's gate verdicts." Minimal stdio JSON-RPC over the audit store — no write tools,
 no mutation surface (lift, don't fork: invariant 5).
 
-ponytail: a hand-rolled line-delimited JSON-RPC loop on stdlib (rung 2: stdlib does
+neckbeard: a hand-rolled line-delimited JSON-RPC loop on stdlib (rung 2: stdlib does
 it). Upgrade path: the official `mcp` Python SDK with Content-Length framing if a
 client needs strict MCP transport. The request handler ``handle_rpc`` is pure so it
 is unit-testable without stdio.

@@ -1,11 +1,11 @@
-"""Ponytail ruleset injection + debt-ledger harvesting.
+"""Neckbeard ruleset injection + debt-ledger harvesting.
 
-The vendored ruleset (``ruleset/ponytail.md``, MIT, no marketplace plugin, no Node
+The vendored ruleset (``ruleset/neckbeard.md``, MIT, no marketplace plugin, no Node
 hooks) is injected into the ORCHESTRATOR and WORKER prompt assembly. It is NEVER
 injected into the reviewer (invariant 6: minimalism is a generation-time bias, not a
 review-time one). ``inject_ruleset`` raises if asked to inject into the reviewer.
 
-``harvest_markers`` scans the codebase for ``ponytail:`` comments — every shortcut
+``harvest_markers`` scans the codebase for ``neckbeard:`` comments — every shortcut
 taken names its upgrade path — and surfaces them as the dashboard's debt ledger.
 """
 
@@ -23,20 +23,20 @@ ROLE_REVIEWER = "reviewer"
 MODE_LITE = "lite"
 MODE_FULL = "full"
 
-_RULESET_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ruleset", "ponytail.md")
+_RULESET_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ruleset", "neckbeard.md")
 
 # Lite mode keeps the ladder + the never-prune set but trims the prose. The protected
 # set is NEVER trimmed (invariant 7) regardless of mode.
 _LITE_HEADER = (
-    "Ponytail (lite): climb the ladder — YAGNI, then stdlib, then platform, then an "
+    "Neckbeard (lite): climb the ladder — YAGNI, then stdlib, then platform, then an "
     "installed dep, then one line, then the minimum that works. Never prune: "
     "trust-boundary validation, data-loss handling, security, accessibility, "
     "observability/structured logging, audit logging, idempotency, retries/backoff. "
-    "Mark every shortcut with a `ponytail:` comment naming its upgrade path."
+    "Mark every shortcut with a `neckbeard:` comment naming its upgrade path."
 )
 
 
-class PonytailError(RuntimeError):
+class NeckbeardError(RuntimeError):
     pass
 
 
@@ -48,18 +48,18 @@ def load_ruleset() -> str:
 
 
 def inject_ruleset(prompt: str, role: str, mode: str = MODE_FULL) -> str:
-    """Prepend the ponytail ruleset to a prompt for the orchestrator or a worker.
+    """Prepend the neckbeard ruleset to a prompt for the orchestrator or a worker.
 
-    Raises ``PonytailError`` for the reviewer role — invariant 6 is enforced in code,
+    Raises ``NeckbeardError`` for the reviewer role — invariant 6 is enforced in code,
     not left to discipline.
     """
     if role == ROLE_REVIEWER:
-        raise PonytailError(
-            "ponytail must NOT be injected into the reviewer (invariant 6): "
+        raise NeckbeardError(
+            "neckbeard must NOT be injected into the reviewer (invariant 6): "
             "minimalism is a generation-time bias, not a review-time one"
         )
     if role not in (ROLE_ORCHESTRATOR, ROLE_WORKER):
-        raise PonytailError(f"unknown role for ponytail injection: {role!r}")
+        raise NeckbeardError(f"unknown role for neckbeard injection: {role!r}")
     # Workers are always full; the orchestrator may run lite.
     effective_mode = MODE_FULL if role == ROLE_WORKER else mode
     if effective_mode == MODE_LITE:
@@ -67,7 +67,7 @@ def inject_ruleset(prompt: str, role: str, mode: str = MODE_FULL) -> str:
     elif effective_mode == MODE_FULL:
         block = load_ruleset()
     else:
-        raise PonytailError(f"unknown ponytail mode: {mode!r}")
+        raise NeckbeardError(f"unknown neckbeard mode: {mode!r}")
     return f"{block}\n\n---\n\n{prompt}"
 
 
@@ -75,8 +75,8 @@ def inject_ruleset(prompt: str, role: str, mode: str = MODE_FULL) -> str:
 # Debt ledger
 # ---------------------------------------------------------------------------
 
-# `ponytail:` marker followed by the upgrade-path note. Matches in any comment style.
-_MARKER_RE = re.compile(r"ponytail:\s*(?P<note>.+?)\s*$", re.IGNORECASE)
+# `neckbeard:` marker followed by the upgrade-path note. Matches in any comment style.
+_MARKER_RE = re.compile(r"neckbeard:\s*(?P<note>.+?)\s*$", re.IGNORECASE)
 _SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv", "dist", "build"}
 _SCAN_EXT = {".py", ".md", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".json", ".toml"}
 
@@ -89,7 +89,7 @@ class DebtItem:
 
 
 def harvest_markers(root: str) -> list[DebtItem]:
-    """Walk ``root`` and collect every ``ponytail:`` marker as a debt-ledger item.
+    """Walk ``root`` and collect every ``neckbeard:`` marker as a debt-ledger item.
 
     Skips the ruleset definition itself and this module's own pattern, so the ledger
     reflects real shortcuts, not the machinery that defines them.
@@ -105,8 +105,8 @@ def harvest_markers(root: str) -> list[DebtItem]:
             full = os.path.join(dirpath, name)
             rel = os.path.relpath(full, root)
             # Don't harvest the ledger machinery or the ruleset definition.
-            if rel.endswith(os.path.join("core", "ponytail.py")) or rel.endswith(
-                os.path.join("ruleset", "ponytail.md")
+            if rel.endswith(os.path.join("core", "neckbeard.py")) or rel.endswith(
+                os.path.join("ruleset", "neckbeard.md")
             ):
                 continue
             try:

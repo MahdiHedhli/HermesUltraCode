@@ -6,7 +6,7 @@ pre-dispatch gate into the real Hermes seams:
   * ``tool_request`` middleware on ``delegate_task`` — append-only TIGHTEN.
   * ``pre_tool_call`` hook on ``delegate_task``       — BLOCK / fail-closed.
 
-plus read-only gate-audit query tools, the ponytail skill, and a dashboard CLI.
+plus read-only gate-audit query tools, the neckbeard skill, and a dashboard CLI.
 
 Fail-closed contract: ``register`` NEVER raises and ALWAYS installs the pre_tool_call
 hook. If the gate cannot be configured (missing reviewer key, or the reviewer shares
@@ -214,16 +214,16 @@ def register(ctx) -> None:
         except Exception as exc:  # noqa: BLE001
             log.warning("hermesultracode: query tools not registered: %s", exc)
 
-    # Ponytail ruleset as a companion skill (opt-in load).
+    # Neckbeard ruleset as a companion skill (opt-in load).
     try:
         from pathlib import Path
 
-        skill_md = Path(_HERE) / "skills" / "ponytail" / "SKILL.md"
+        skill_md = Path(_HERE) / "skills" / "neckbeard" / "SKILL.md"
         if skill_md.exists():
-            ctx.register_skill("ponytail", skill_md,
-                               description="Ponytail minimalism ladder + extended protected set.")
+            ctx.register_skill("neckbeard", skill_md,
+                               description="Neckbeard minimalism ladder + extended protected set.")
     except Exception as exc:  # noqa: BLE001
-        log.debug("hermesultracode: ponytail skill not registered: %s", exc)
+        log.debug("hermesultracode: neckbeard skill not registered: %s", exc)
 
     # Dashboard launcher: `hermes ultracode-dashboard`.
     try:

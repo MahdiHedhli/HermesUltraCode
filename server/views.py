@@ -1,5 +1,5 @@
 """Read-only view builders over the audit store: live state, queue, gate panel,
-ponytail ledger, and metrics. Pure functions so they are unit-testable without a
+neckbeard ledger, and metrics. Pure functions so they are unit-testable without a
 socket. The read API (``read_api.py``) is a thin HTTP shell over these.
 """
 
@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from core.ponytail import harvest_markers
+from core.neckbeard import harvest_markers
 from core.redact import redact_obj
 from core.store import AuditFilter, AuditStore, DispatchRecord
 
@@ -28,7 +28,7 @@ def record_summary(r: DispatchRecord) -> dict[str, Any]:
         "escalated": r.escalated,
         "fail_closed": r.fail_closed,
         "dissent_logged": r.dissent_logged,
-        "ponytail_block": r.ponytail_block,
+        "neckbeard_block": r.neckbeard_block,
         "n_directives": len(r.added_directives),
         "reviewer_model": r.reviewer_model,
         "latency_ms": r.latency_ms,
@@ -93,8 +93,8 @@ def default_queue_source(store: AuditStore) -> list[dict[str, Any]]:
     ]
 
 
-def ponytail_view(store: AuditStore, repo_root: str) -> dict[str, Any]:
-    """Debt ledger (harvested `ponytail:` markers) + protected-set violations the
+def neckbeard_view(store: AuditStore, repo_root: str) -> dict[str, Any]:
+    """Debt ledger (harvested `neckbeard:` markers) + protected-set violations the
     gate blocked."""
     debt = [
         {"file": it.file, "line": it.line, "note": it.note}
@@ -103,7 +103,7 @@ def ponytail_view(store: AuditStore, repo_root: str) -> dict[str, Any]:
     protected_blocks = [
         gate_panel(r)
         for r in store.all()
-        if r.ponytail_block
+        if r.neckbeard_block
     ]
     return {"debt_ledger": debt, "protected_set_violations": protected_blocks}
 

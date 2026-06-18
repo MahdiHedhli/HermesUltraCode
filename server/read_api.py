@@ -11,7 +11,7 @@ Security (criterion 9), all enforced here in ``authorize`` before any data leave
   * if bound to a non-loopback host, the auth gate stays engaged (token required)
     and startup refuses a blank token.
 
-ponytail: stdlib ``http.server`` — no Flask/FastAPI dependency (rung 2: stdlib does
+neckbeard: stdlib ``http.server`` — no Flask/FastAPI dependency (rung 2: stdlib does
 it). The routing is a pure function over (method, path, headers) so the security
 controls are unit-testable without opening a socket. Upgrade path: a real ASGI app
 (FastAPI + uvicorn) and the React 19 + Vite + Tailwind SPA in ``web/`` if these views
@@ -206,8 +206,8 @@ def _route(ctx: ReadApiContext, path: str, query: dict) -> Response:
         return _json({"queue": ctx.queue_source(store)})
     if path == "/api/metrics":
         return _json(views.compute_metrics(store, ctx.benchmark))
-    if path == "/api/ponytail":
-        return _json(views.ponytail_view(store, ctx.repo_root))
+    if path == "/api/neckbeard":
+        return _json(views.neckbeard_view(store, ctx.repo_root))
     if path == "/api/config":
         # Secret redaction on any config surfaced (criterion 9).
         return _json(redact_obj(ctx.surfaced_config or {}))
