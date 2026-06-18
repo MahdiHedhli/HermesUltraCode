@@ -60,7 +60,7 @@ stays testable and portable.
 | Part | Location | Notes |
 |---|---|---|
 | **Gate core** | `core/` | Provider- and storage-agnostic. Review loop, blast-radius tiering, tighten validation, audit trail. No Hermes import, no un-mockable network in the hot path. |
-| **Hermes adapter** | `adapters/hermes_hook.py` | The *only* Hermes-coupled file. Hooks the gate into the dispatch boundary; **fails closed** if it cannot intercept dispatch. |
+| **Hermes plugin** | `__init__.py` + `plugin.yaml` + `adapters/hermes_hook.py` | The Hermes-coupled layer. `register(ctx)` hooks `tool_request` (tighten) + `pre_tool_call` (block) on `delegate_task`; **fails closed** if the gate can't be configured. Verified against Hermes's real `PluginManager`. |
 | **Dashboard + read API** | `server/`, `web/` | Read-only views over the store, mirroring Hermes dashboard security. Optional read-only MCP server. |
 
 The **reviewer** is a model call routed to a provider that **must differ in lab** from the
@@ -140,28 +140,48 @@ appends the extended-protected-set directives — audit logging, idempotency, re
 backoff, validation — then dispatches), and a prompt-injection-laden base (→ fail-closed
 block). This is also what surfaced the tighten validator's precision tuning below.
 
-### Wiring into Hermes
+## Install as a Hermes plugin
 
-`adapters/hermes_hook.py` is the integration point. Construct a `Gate`, wrap it in a
-`HermesGateAdapter`, and `register()` it against your Hermes runtime's dispatch hook.
-If no recognised hook surface is found, registration **raises** rather than letting
-dispatch run unguarded:
+HermesUltraCode ships as a first-class **Hermes plugin** (the repo root is the plugin —
+`plugin.yaml` + `__init__.py`). Install and configure it:
 
-```python
-from core.config import load_config
-from core.gate import Gate
-from core.store_sqlite import SqliteAuditStore
-from adapters.hermes_hook import HermesGateAdapter
-
-cfg = load_config("config.example.json")          # validates distinct provider labs
-gate = Gate(
-    reviewer_provider=cfg.reviewer_provider,
-    orchestrator_provider=cfg.orchestrator_provider,
-    store=SqliteAuditStore(cfg.store_path),
-    round_cap=cfg.round_cap,
-)
-HermesGateAdapter(gate=gate).register(hermes_runtime=my_hermes_runtime)
+```bash
+hermes plugins install MahdiHedhli/HermesUltraCode    # clones + discovers the plugin
+# set the reviewer (a DIFFERENT lab than your orchestrator — startup enforces this):
+export HERMESULTRACODE_REVIEWER_API_KEY=sk-or-...      # e.g. OpenRouter
+export HERMESULTRACODE_REVIEWER_LAB=anthropic
+export HERMESULTRACODE_REVIEWER_MODEL=anthropic/claude-3.5-sonnet
+hermes plugins enable hermesultracode
 ```
+
+`register(ctx)` wires the gate into the **real Hermes dispatch seam** — verified against
+Hermes's own `PluginManager`/`PluginContext`:
+
+| Seam | Hermes mechanism | Gate behavior |
+|---|---|---|
+| **Tighten** | `tool_request` middleware on `delegate_task` (runs first; rewrites args) | rewrites the subagent's `goal` → base verbatim + appended directives |
+| **Block** | `pre_tool_call` hook on `delegate_task` (returns `{"action":"block"}`) | refuses a dispatch the gate didn't release; **fail-closed if unconfigured** |
+| **Observe** | `register_tool` (`gate_metrics`, `gate_audit_query`, `gate_recent_verdicts`) | the Hermes agent can answer "show me today's gate verdicts" |
+| **Ponytail** | `register_skill('ponytail', …)` + `skills/ponytail/SKILL.md` | the minimalism ruleset as an installable skill |
+| **Dashboard** | `register_cli_command('ultracode-dashboard', …)` | `hermes ultracode-dashboard` launches the read API |
+
+Both seams receive the same `tool_call_id`, so the gate (a reviewer model call) runs
+**once** per dispatch and both seams read the cached decision. `register()` never raises
+and **always** installs the `pre_tool_call` hook: if the reviewer can't be configured (or
+its lab matches the orchestrator's), the hook blocks every `delegate_task` rather than let
+a worker run un-vetted (invariant 1).
+
+The ponytail ruleset is independently publishable as a skill:
+
+```bash
+hermes skills install MahdiHedhli/HermesUltraCode/skills/ponytail   # or:
+hermes skills publish skills/ponytail --to github --repo <owner/skills>
+```
+
+> `adapters/hermes_hook.py` (the `HermesDispatchGate` mapping) and `__init__.py` (the
+> `register(ctx)` entry) are the only Hermes-coupled files; the gate `core/` stays
+> portable and Hermes-free. To embed the gate without the plugin, drive
+> `core.gate.Gate.review_and_dispatch(goal, meta)` directly.
 
 ## Ponytail discipline
 
@@ -208,18 +228,20 @@ a Cloudflare D1 adapter is a later swap against the same seam (the seam is left,
 ## File layout
 
 ```
-hermesultracode/
+hermesultracode/                         # repo root = the Hermes plugin
+  __init__.py    plugin.yaml             # Hermes plugin entry: register(ctx) + manifest
   core/        gate.py verdict.py tighten.py tiering.py providers.py
                store.py store_sqlite.py redact.py config.py ponytail.py
-  adapters/    hermes_hook.py            # only Hermes-coupled file; fails closed
-  ruleset/     ponytail.md               # vendored, MIT, no plugin/hooks
+  adapters/    hermes_hook.py            # HermesDispatchGate: tool_request + pre_tool_call
+  ruleset/     ponytail.md               # vendored, MIT, no marketplace plugin/hooks
+  skills/      ponytail/SKILL.md         # ponytail as an installable Hermes skill
   server/      read_api.py views.py mcp_server.py __main__.py
   web/         dashboard.html app.js styles.css README.md
-  bench/       harness.py tasks.example.json
+  bench/       harness.py smoke_hermes.py tasks.example.json
   tests/       test_tighten.py test_failclosed.py test_tiering.py
                test_provider_distinct.py test_round_cap.py test_store.py
                test_gate.py test_redact.py test_ponytail.py test_read_api.py
-               test_adapter.py test_bench.py test_mcp.py helpers.py
+               test_adapter.py test_bench.py test_mcp.py test_plugin.py helpers.py
   config.example.json  pyproject.toml  README.md
 ```
 

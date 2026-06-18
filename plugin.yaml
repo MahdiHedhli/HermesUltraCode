@@ -1,0 +1,37 @@
+name: hermesultracode
+version: 0.1.0
+description: >-
+  Pre-dispatch prompt gate for Hermes subagents. Vets every delegate_task before a
+  worker runs: a neutral reviewer (routed to a DIFFERENT lab than the orchestrator)
+  may only append tightening directives or block — tighten-only and fail-closed, with
+  an immutable, secret-redacted audit trail for ISO 27001 evidence. Hooks pre_tool_call
+  (block) plus tool_request middleware (tighten) on delegate_task, and exposes read-only
+  gate-audit query tools. Ships the ponytail minimalism ruleset as a companion skill.
+author: "HermesUltraCode (MahdiHedhli)"
+kind: standalone
+
+# Declarative (the real wiring is in register(ctx)). The block seam is the pre_tool_call
+# hook; the tighten seam is tool_request middleware (registered in code).
+provides_hooks:
+  - pre_tool_call
+provides_tools:
+  - gate_audit_query
+  - gate_metrics
+  - gate_recent_verdicts
+
+requires_env:
+  - name: HERMESULTRACODE_REVIEWER_API_KEY
+    description: >-
+      API key for the gate's REVIEWER model. The reviewer must be a different lab than
+      your orchestrator (e.g. OpenRouter/Anthropic when Hermes runs Nous) — startup
+      validates this and refuses to run if the labs match. May be left blank only when
+      HERMESULTRACODE_REVIEWER_BASE_URL points at a local proxy (e.g. `hermes proxy`)
+      that injects real credentials.
+    url: "https://openrouter.ai/keys"
+    secret: true
+  - name: HERMESULTRACODE_REVIEWER_LAB
+    description: "Reviewer lab id for the distinctness check (default: anthropic). Must differ from HERMESULTRACODE_ORCH_LAB."
+    secret: false
+  - name: HERMESULTRACODE_REVIEWER_MODEL
+    description: "Reviewer model id (default: anthropic/claude-3.5-sonnet)."
+    secret: false

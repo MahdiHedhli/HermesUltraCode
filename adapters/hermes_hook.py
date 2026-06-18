@@ -1,176 +1,212 @@
-"""Hermes adapter — the ONLY Hermes-coupled file (lift, don't fork: invariant 5).
+"""Hermes adapter — the only Hermes-coupled file (invariant 5: lift, don't fork).
 
-It hooks the gate into the Hermes subagent dispatch boundary. If it cannot intercept
-dispatch, it fails closed: it raises and refuses to let any worker prompt through
-un-vetted, rather than degrading to pass-through (invariant 1).
+Wires the gate into the REAL Hermes subagent-dispatch boundary. Hermes dispatches a
+worker subagent through the ``delegate_task`` tool (args: ``goal`` + ``context`` +
+``toolsets`` — see Hermes ``tools/delegate_tool.py``). The gate intercepts that
+dispatch through two Hermes plugin seams, which the agent loop runs in this order for
+every tool call (verified in Hermes ``agent/agent_runtime_helpers.py``):
 
-The Hermes runtime is imported lazily and never at module import time, so the gate
-core stays Hermes-free and offline-testable. This file is intentionally thin; all
-policy lives in ``core/``.
+  1. ``tool_request`` middleware — may rewrite the effective tool args BEFORE hooks
+     see them, by returning ``{"args": {...}}``. This is where the gate applies its
+     append-only TIGHTEN (it rewrites ``goal`` to base + appended directives).
+  2. ``pre_tool_call`` hook — may return ``{"action": "block", "message": ...}`` to
+     refuse the call. This is where the gate enforces a BLOCK / fail-closed.
+
+Both seams receive the same ``tool_call_id``, so the gate runs ONCE per dispatch
+(memoised by ``tool_call_id``) and both seams read the same decision.
+
+Fail closed (invariant 1): if the gate is misconfigured (no reviewer, or the reviewer
+shares the orchestrator's lab), the ``pre_tool_call`` seam BLOCKS every
+``delegate_task`` rather than letting an un-vetted worker run. The plugin's
+``register()`` must therefore NEVER fail to install this hook — see ``__init__.py``.
 """
 
 from __future__ import annotations
 
 import logging
+from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from core.gate import Gate, DispatchResult
+from core.tighten import _DIRECTIVE_HEADER
 from core.tiering import DispatchMeta
 
 log = logging.getLogger("hermesultracode.adapter")
 
+# The Hermes tool that dispatches a worker subagent, and its argument names.
+DISPATCH_TOOL = "delegate_task"
+GOAL_ARG = "goal"        # the subagent's task — the gate's immutable "base prompt"
+CONTEXT_ARG = "context"  # background data the subagent receives
+TOOLSETS_ARG = "toolsets"
 
-class AdapterUnavailable(RuntimeError):
-    """Raised when the gate cannot attach to the Hermes dispatch boundary.
-
-    This is a fail-closed condition: callers must NOT dispatch if registration fails.
-    """
+# Blast-radius hints from the subagent's granted toolsets (touched paths are unknown
+# before the subagent runs, so tiering is necessarily coarser at this boundary).
+_READONLY_TOOLSETS = {"search", "read", "web", "browse", "retrieval", "research"}
+_MERGE_TOOLSETS = {"merge", "deploy", "release", "publish"}
+_ELEVATED_TOOLSETS = {"git", "infra", "terminal", "shell", "ci", "k8s", "docker"}
 
 
 class GateBlocked(RuntimeError):
-    """Raised to Hermes to abort a dispatch the gate did not release.
-
-    Carries the ``DispatchResult`` so the orchestrator/UI can show why (blocked vs
-    escalated, the rationale, the audit record id)."""
+    """Raised by :meth:`HermesDispatchGate.assert_release` when the gate refuses a
+    dispatch. Carries the :class:`DispatchResult` for callers that want the detail."""
 
     def __init__(self, result: DispatchResult) -> None:
         super().__init__(
             f"gate did not release dispatch: decision={result.decision} "
-            f"tier={result.tier} record={result.record_id} reason={result.fail_closed_reason or result.rationale!r}"
+            f"tier={result.tier} record={result.record_id} "
+            f"reason={result.fail_closed_reason or result.rationale!r}"
         )
         self.result = result
 
 
 @dataclass
-class HermesGateAdapter:
-    """Wraps a :class:`core.gate.Gate` and exposes a dispatch interceptor.
+class HermesDispatchGate:
+    """Adapts a :class:`core.gate.Gate` to the Hermes ``tool_request`` + ``pre_tool_call``
+    seams. Provider/storage-agnostic; the gate does the policy, this just maps shapes.
 
-    ``meta_builder`` maps a Hermes dispatch request to a :class:`DispatchMeta`. A
-    default best-effort mapping is provided; override it to read your runtime's exact
-    fields (merge authority, touched paths, file count, read-only, cost).
+    ``gate`` may be ``None`` to run in fail-closed mode (every ``delegate_task`` is
+    blocked with ``config_error``) — used when the reviewer cannot be configured, so
+    enabling the plugin can never silently let dispatch through un-vetted.
     """
 
-    gate: Gate
-    meta_builder: Callable[[Any], DispatchMeta] | None = None
+    gate: Gate | None
+    config_error: str = ""
+    cache_size: int = 256
 
-    # -- the boundary the dispatcher must consult -------------------------------
+    def __post_init__(self) -> None:
+        self._cache: "OrderedDict[str, DispatchResult]" = OrderedDict()
 
-    def intercept(self, dispatch_request: Any) -> str:
-        """Vet a pending dispatch. Return the dispatched prompt to forward to the
-        worker, or raise :class:`GateBlocked` so Hermes aborts. Never returns an
-        un-vetted prompt; never silently passes a base through on error."""
-        base_prompt = _extract_base_prompt(dispatch_request)
-        meta = (self.meta_builder or default_meta_builder)(dispatch_request)
-        result = self.gate.review_and_dispatch(base_prompt, meta)
-        if not result.released or result.dispatched_prompt is None:
-            log.warning(
-                "adapter.blocked",
-                extra={"event": "blocked", "record": result.record_id, "decision": result.decision},
+    # -- Hermes seam 1: tool_request middleware (the TIGHTEN) -----------------
+
+    def tool_request(self, tool_name: str, args: Any, tool_call_id: str = "", **ctx: Any):
+        """Return ``{"args": {...}}`` with the tightened ``goal`` when the gate releases
+        a (possibly tightened) dispatch; ``None`` to leave args unchanged. A non-release
+        returns ``None`` here — the block is enforced by :meth:`pre_tool_call`."""
+        if tool_name != DISPATCH_TOOL or not isinstance(args, dict):
+            return None
+        if self.gate is None:
+            return None  # fail-closed block happens in pre_tool_call
+        result = self._decide(tool_call_id, args)
+        if result.released and result.dispatched_prompt is not None:
+            new_args = dict(args)
+            new_args[GOAL_ARG] = result.dispatched_prompt
+            log.info(
+                "adapter.tighten",
+                extra={"event": "tighten", "record": result.record_id,
+                       "tier": result.tier, "n_directives": len(result.added_directives)},
             )
-            raise GateBlocked(result)
-        log.info(
-            "adapter.released",
-            extra={"event": "released", "record": result.record_id, "tier": result.tier},
-        )
-        return result.dispatched_prompt
-
-    # -- registration against the Hermes hook surface ---------------------------
-
-    def register(self, hermes_runtime: Any | None = None) -> None:
-        """Attach ``intercept`` to the Hermes subagent-dispatch hook.
-
-        Fails closed: if no usable hook surface is found, raises
-        :class:`AdapterUnavailable` so the operator cannot accidentally run with the
-        gate detached. Wiring is intentionally duck-typed because the exact Hermes
-        hook API is environment-specific; supply ``hermes_runtime`` exposing one of
-        the recognised registration hooks below.
-        """
-        runtime = hermes_runtime
-        if runtime is None:
-            runtime = _try_import_hermes_runtime()
-        if runtime is None:
-            raise AdapterUnavailable(
-                "no Hermes runtime available to attach the gate; refusing to run with "
-                "the dispatch boundary unguarded (fail closed)"
-            )
-
-        for hook_name in (
-            "register_predispatch_hook",
-            "on_subagent_dispatch",
-            "add_dispatch_interceptor",
-            "set_dispatch_gate",
-        ):
-            hook = getattr(runtime, hook_name, None)
-            if callable(hook):
-                hook(self.intercept)
-                log.info("adapter.registered", extra={"event": "registered", "hook": hook_name})
-                return
-
-        raise AdapterUnavailable(
-            "Hermes runtime exposes no recognised dispatch hook "
-            "(register_predispatch_hook / on_subagent_dispatch / add_dispatch_interceptor / "
-            "set_dispatch_gate); cannot intercept dispatch — fail closed"
-        )
-
-
-def _try_import_hermes_runtime() -> Any | None:
-    """Best-effort lazy import of a Hermes runtime singleton. Returns None if Hermes
-    is not importable here (the gate core never depends on it)."""
-    try:  # pragma: no cover - depends on a Hermes install not present in tests
-        import hermes  # type: ignore
-
-        return getattr(hermes, "runtime", None) or getattr(hermes, "get_runtime", lambda: None)()
-    except Exception:  # noqa: BLE001
+            return {"args": new_args}
         return None
 
+    # -- Hermes seam 2: pre_tool_call hook (the BLOCK / fail-closed) ----------
 
-def _extract_base_prompt(request: Any) -> str:
-    """Pull the worker base prompt from a dispatch request, tolerating shapes."""
-    for attr in ("base_prompt", "prompt", "worker_prompt", "instructions"):
-        val = getattr(request, attr, None)
-        if isinstance(val, str) and val.strip():
-            return val
-    if isinstance(request, dict):
-        for key in ("base_prompt", "prompt", "worker_prompt", "instructions"):
-            val = request.get(key)
-            if isinstance(val, str) and val.strip():
-                return val
-    raise GateBlockedExtractionError(
-        "could not extract a base prompt from the dispatch request; failing closed"
+    def pre_tool_call(self, tool_name: str, args: Any, tool_call_id: str = "", **ctx: Any):
+        """Return ``{"action": "block", "message": ...}`` to refuse a dispatch the gate
+        did not release; ``None`` to allow it."""
+        if tool_name != DISPATCH_TOOL or not isinstance(args, dict):
+            return None
+        if self.gate is None:
+            return {
+                "action": "block",
+                "message": (
+                    "[HermesUltraCode gate · fail-closed] the pre-dispatch gate is not "
+                    f"configured, so worker dispatch is refused. {self.config_error} "
+                    "Set the reviewer provider env (a DIFFERENT lab from the orchestrator) "
+                    "and re-enable, or disable the plugin to dispatch un-vetted."
+                ),
+            }
+        result = self._decide(tool_call_id, args)
+        if not result.released:
+            reason = result.fail_closed_reason or result.rationale or "gate did not release this dispatch"
+            log.warning(
+                "adapter.block",
+                extra={"event": "block", "record": result.record_id,
+                       "decision": result.decision, "tier": result.tier},
+            )
+            return {
+                "action": "block",
+                "message": (
+                    f"[HermesUltraCode gate · {result.decision} · tier={result.tier}"
+                    f"{' · escalated' if result.escalated else ''}] {reason}"
+                ),
+            }
+        return None
+
+    # -- one-shot helper for non-Hermes callers (tests, embedding) -----------
+
+    def assert_release(self, args: dict) -> str:
+        """Run the gate and return the tightened ``goal``, or raise :class:`GateBlocked`."""
+        result = self._decide("", args)
+        if self.gate is None or not result.released or result.dispatched_prompt is None:
+            raise GateBlocked(result)
+        return result.dispatched_prompt
+
+    # -- gate evaluation, memoised by tool_call_id ---------------------------
+
+    def _decide(self, tool_call_id: str, args: dict) -> DispatchResult:
+        key = tool_call_id or _args_key(args)
+        cached = self._cache.get(key)
+        if cached is not None:
+            self._cache.move_to_end(key)
+            return cached
+        base, meta = self._extract(args)
+        try:
+            result = self.gate.review_and_dispatch(base, meta)  # never raises by design
+        except Exception as exc:  # noqa: BLE001 - last-resort fail-closed guard
+            log.exception("adapter.gate_error")
+            result = _synthetic_block(base, meta.task_id, str(exc))
+        self._cache[key] = result
+        self._cache.move_to_end(key)
+        while len(self._cache) > self.cache_size:
+            self._cache.popitem(last=False)
+        return result
+
+    def _extract(self, args: dict) -> tuple[str, DispatchMeta]:
+        raw_goal = str(args.get(GOAL_ARG) or "")
+        # Idempotency: if a prior pass already appended directives (e.g. tool_request
+        # ran and pre_tool_call now sees the rewritten goal), recover the ORIGINAL base
+        # so the gate reviews the same text and never tightens the tightened.
+        base = raw_goal.split(_DIRECTIVE_HEADER, 1)[0]
+        context = str(args.get(CONTEXT_ARG) or "")
+        toolsets = args.get(TOOLSETS_ARG) or []
+        if isinstance(toolsets, str):
+            toolsets = [toolsets]
+        return base, _meta_from(toolsets, context)
+
+
+def _meta_from(toolsets, context: str) -> DispatchMeta:
+    """Approximate blast radius from the subagent's toolsets (paths are unknown until
+    the subagent runs). Read-only -> trivial; merge/deploy -> merge_adjacent;
+    git/infra/terminal -> elevated (via a synthetic protected path); else standard."""
+    ts = {str(t).strip().lower() for t in toolsets if str(t).strip()}
+    read_only = bool(ts) and ts.issubset(_READONLY_TOOLSETS)
+    carries_merge = bool(ts & _MERGE_TOOLSETS)
+    elevated = bool(ts & _ELEVATED_TOOLSETS)
+    return DispatchMeta(
+        carries_merge_authority=carries_merge,
+        # a synthetic protected path makes the deterministic tiering classify elevated
+        touched_paths=("infra/subagent",) if (elevated and not carries_merge) else (),
+        file_count=(0 if read_only else None),
+        read_only=read_only,
+        description=context[:500],
     )
 
 
-class GateBlockedExtractionError(RuntimeError):
-    """A dispatch request without an extractable base prompt is refused (fail closed)."""
+def _args_key(args: dict) -> str:
+    import hashlib
+    import json
+
+    try:
+        blob = json.dumps(args, sort_keys=True, default=str)
+    except Exception:  # noqa: BLE001
+        blob = repr(sorted(args.items(), key=lambda kv: kv[0]))
+    return hashlib.sha256(blob.encode("utf-8", "replace")).hexdigest()
 
 
-def default_meta_builder(request: Any) -> DispatchMeta:
-    """Best-effort mapping from a Hermes dispatch request to DispatchMeta.
-
-    Conservative defaults: when a field is unknown, assume the HIGHER blast radius is
-    NOT trivially granted — unknown merge authority defaults False, but unknown
-    read-only defaults False too, so an ambiguous dispatch lands in standard/elevated,
-    never silently in trivial."""
-
-    def pick(*names, default=None):
-        for n in names:
-            v = getattr(request, n, None)
-            if v is None and isinstance(request, dict):
-                v = request.get(n)
-            if v is not None:
-                return v
-        return default
-
-    touched = pick("touched_paths", "files", "paths", default=()) or ()
-    if isinstance(touched, str):
-        touched = (touched,)
-    return DispatchMeta(
-        carries_merge_authority=bool(pick("carries_merge_authority", "can_merge", default=False)),
-        touched_paths=tuple(touched),
-        file_count=pick("file_count", default=None),
-        read_only=bool(pick("read_only", default=False)),
-        estimated_cost_usd=float(pick("estimated_cost_usd", "cost", default=0.0) or 0.0),
-        task_id=str(pick("task_id", "id", default="") or ""),
-        description=str(pick("description", "title", default="") or ""),
+def _synthetic_block(base: str, task_id: str, reason: str) -> DispatchResult:
+    return DispatchResult(
+        released=False, decision="blocked", tier="standard", verdict="unavailable",
+        round_count=0, record_id="", dispatched_prompt=None, added_directives=(),
+        rationale=reason, fail_closed=True, fail_closed_reason=reason,
     )

@@ -1,0 +1,160 @@
+"""The Hermes plugin packaging: register(ctx) wires the real seams and fails closed;
+the plugin.yaml manifest and ponytail SKILL.md conform to the Hermes formats."""
+
+import importlib.util
+import json
+import os
+import tempfile
+import unittest
+
+import tests.helpers  # noqa: F401 - puts repo root on sys.path
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_REVIEWER_ENV = ("HERMESULTRACODE_REVIEWER_API_KEY", "HERMESULTRACODE_REVIEWER_LAB",
+                 "HERMESULTRACODE_REVIEWER_MODEL", "HERMESULTRACODE_REVIEWER_BASE_URL",
+                 "HERMESULTRACODE_ORCH_LAB", "HERMESULTRACODE_STORE")
+
+
+def load_plugin():
+    spec = importlib.util.spec_from_file_location(
+        "hermesultracode_plugin", os.path.join(REPO_ROOT, "__init__.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class FakeCtx:
+    def __init__(self):
+        self.hooks, self.middleware, self.tools, self.skills, self.cli = {}, {}, {}, {}, {}
+
+    def register_hook(self, name, cb):
+        self.hooks.setdefault(name, []).append(cb)
+
+    def register_middleware(self, kind, cb):
+        self.middleware.setdefault(kind, []).append(cb)
+
+    def register_tool(self, name, toolset, schema, handler, **kw):
+        self.tools[name] = {"toolset": toolset, "schema": schema, "handler": handler}
+
+    def register_skill(self, name, path, description=""):
+        self.skills[name] = {"path": path, "description": description}
+
+    def register_cli_command(self, name, help, setup_fn, handler_fn=None, description=""):
+        self.cli[name] = {"help": help, "handler_fn": handler_fn}
+
+
+class PluginRegisterTest(unittest.TestCase):
+    def setUp(self):
+        self._saved = {k: os.environ.get(k) for k in _REVIEWER_ENV}
+        self._tmp = tempfile.mkdtemp()
+        for k in _REVIEWER_ENV:
+            os.environ.pop(k, None)
+        os.environ["HERMESULTRACODE_STORE"] = os.path.join(self._tmp, "audit.sqlite3")
+        self.plugin = load_plugin()
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def _set_reviewer(self):
+        os.environ["HERMESULTRACODE_REVIEWER_API_KEY"] = "sk-or-fake0123456789ABCDEF"
+        os.environ["HERMESULTRACODE_REVIEWER_LAB"] = "anthropic"
+        os.environ["HERMESULTRACODE_ORCH_LAB"] = "nous"
+
+    def test_always_installs_block_hook_and_tighten_middleware(self):
+        ctx = FakeCtx()
+        self.plugin.register(ctx)
+        self.assertIn("pre_tool_call", ctx.hooks)
+        self.assertIn("tool_request", ctx.middleware)
+
+    def test_failclosed_when_no_reviewer_configured(self):
+        ctx = FakeCtx()
+        self.plugin.register(ctx)  # no reviewer env -> fail-closed mode
+        block = ctx.hooks["pre_tool_call"][0]
+        out = block("delegate_task", {"goal": "do x", "toolsets": ["files"]}, tool_call_id="t")
+        self.assertEqual(out["action"], "block")
+        self.assertIn("fail-closed", out["message"])
+
+    def test_active_when_reviewer_configured(self):
+        self._set_reviewer()
+        ctx = FakeCtx()
+        self.plugin.register(ctx)
+        # gate active: distinct labs validated at build, no network during register
+        block = ctx.hooks["pre_tool_call"][0]
+        # a non-delegate tool is ignored (no gate call, no network)
+        self.assertIsNone(block("write_file", {"path": "x"}, tool_call_id="t"))
+
+    def test_registers_query_tools(self):
+        self._set_reviewer()
+        ctx = FakeCtx()
+        self.plugin.register(ctx)
+        for t in ("gate_metrics", "gate_audit_query", "gate_recent_verdicts"):
+            self.assertIn(t, ctx.tools)
+            self.assertEqual(ctx.tools[t]["toolset"], "hermesultracode")
+
+    def test_query_tool_returns_json(self):
+        self._set_reviewer()
+        ctx = FakeCtx()
+        self.plugin.register(ctx)
+        out = ctx.tools["gate_metrics"]["handler"]({})
+        data = json.loads(out)
+        self.assertIn("total_dispatches", data)
+
+    def test_registers_skill_and_dashboard_cli(self):
+        self._set_reviewer()
+        ctx = FakeCtx()
+        self.plugin.register(ctx)
+        self.assertIn("ponytail", ctx.skills)
+        self.assertIn("ultracode-dashboard", ctx.cli)
+
+    def test_same_lab_reviewer_falls_back_to_failclosed(self):
+        # reviewer lab == orchestrator lab must NOT silently activate the gate
+        os.environ["HERMESULTRACODE_REVIEWER_API_KEY"] = "sk-or-fake0123456789ABCDEF"
+        os.environ["HERMESULTRACODE_REVIEWER_LAB"] = "nous"
+        os.environ["HERMESULTRACODE_ORCH_LAB"] = "nous"
+        ctx = FakeCtx()
+        self.plugin.register(ctx)
+        out = ctx.hooks["pre_tool_call"][0]("delegate_task", {"goal": "x"}, tool_call_id="t")
+        self.assertEqual(out["action"], "block")
+
+
+class ManifestAndSkillTest(unittest.TestCase):
+    def test_plugin_yaml_present_and_conformant(self):
+        with open(os.path.join(REPO_ROOT, "plugin.yaml"), encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("name: hermesultracode", text)
+        self.assertIn("version:", text)
+        self.assertIn("description:", text)
+        self.assertIn("provides_hooks:", text)
+        self.assertIn("pre_tool_call", text)
+        for t in ("gate_audit_query", "gate_metrics", "gate_recent_verdicts"):
+            self.assertIn(t, text)
+        self.assertIn("requires_env:", text)
+        self.assertIn("HERMESULTRACODE_REVIEWER_API_KEY", text)
+
+    def test_init_py_present_for_discovery(self):
+        # Hermes discovery requires plugin.yaml AND __init__.py co-located.
+        self.assertTrue(os.path.isfile(os.path.join(REPO_ROOT, "__init__.py")))
+        self.assertTrue(os.path.isfile(os.path.join(REPO_ROOT, "plugin.yaml")))
+
+    def test_ponytail_skill_frontmatter(self):
+        with open(os.path.join(REPO_ROOT, "skills", "ponytail", "SKILL.md"), encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertTrue(text.startswith("---"))
+        self.assertIn("name: ponytail", text)
+        self.assertIn("description:", text)
+        self.assertIn("version:", text)
+        self.assertIn("platforms:", text)
+        self.assertIn("metadata:", text)
+        self.assertIn("hermes:", text)
+        self.assertIn("tags:", text)
+        # the extended protected set must be present
+        for item in ("observability", "audit logging", "idempotency", "retries"):
+            self.assertIn(item, text.lower())
+
+
+if __name__ == "__main__":
+    unittest.main()
