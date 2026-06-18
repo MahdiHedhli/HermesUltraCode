@@ -1,17 +1,21 @@
 # HermesUltraCode
 
+> **A neutral, _different-lab_ reviewer that vets every Hermes `delegate_task` before a
+> worker ever runs — tighten-only, fail-closed, fully audited.**
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-black?style=flat-square)](LICENSE)
+&nbsp;![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)
+&nbsp;![Runtime deps: 0](https://img.shields.io/badge/runtime_deps-0-2ea043?style=flat-square)
+&nbsp;![Tests: 155 passing](https://img.shields.io/badge/tests-155_passing-2ea043?style=flat-square)
+&nbsp;![Hermes plugin + skill](https://img.shields.io/badge/Hermes-plugin_%2B_skill-7c3aed?style=flat-square)
+&nbsp;![Degrades: fail-closed](https://img.shields.io/badge/degrades-fail--closed-e5604d?style=flat-square)
+
 A self-contained **pre-dispatch prompt gate**, **neckbeard generation discipline**, and
-**observability dashboard** that sits on top of an existing
-[Hermes Agent](https://nousresearch.com/) (Nous Research) orchestrator/worker setup.
-
-The Hermes runtime, the orchestrator agent, and the worker subagent pool already exist
-— this repo does **not** rebuild them. It builds the gate that vets orchestrator-authored
-prompts *before they reach workers*, the neckbeard minimalism discipline applied to
-generation, and a read-only dashboard that makes the whole thing observable and
-ISO 27001:2022-auditable.
-
-The gate's own code is built under the neckbeard ladder: stdlib-only core, zero runtime
-dependencies, offline-testable with the model provider mocked.
+**observability dashboard** layered onto an existing
+[Hermes Agent](https://nousresearch.com/) (Nous Research) orchestrator/worker setup. It
+does **not** rebuild Hermes — it wraps the subagent-dispatch boundary so no worker prompt
+reaches a subagent un-vetted, biases generation toward minimalism, and keeps an ISO
+27001-grade trail of every decision.
 
 ```
 orchestrator base prompt ─▶ [ GATE ] ─▶ dispatched prompt ─▶ worker
@@ -21,6 +25,20 @@ orchestrator base prompt ─▶ [ GATE ] ─▶ dispatched prompt ─▶ worker
                               │  release decision (code, not chat)
                               └─▶ immutable, redacted audit row ─▶ dashboard / MCP
 ```
+
+### Why it's different
+
+- ✂️ **Tighten-only by construction** — the reviewer may *append* constraints or *block*,
+  never rewrite. `dispatched = base (verbatim) + directives`, proven in code, not trusted
+  to the model.
+- 🔒 **Fail-closed, always** — a missing, late, garbled, or quota-starved verdict
+  blocks-and-escalates. Silence is never a pass.
+- 🧬 **Reviewed by a different lab** — the reviewer must run on a different model lab than
+  the orchestrator (enforced at startup), so it never grades its own homework.
+- 🧾 **Audited like evidence** — one immutable, secret-redacted row per dispatch;
+  `UPDATE`/`DELETE` blocked at the database; JSON/CSV export.
+- 🪶 **Zero runtime dependencies** — stdlib-only core, **155 offline tests**, the model
+  provider mocked.
 
 ## The eight non-negotiable invariants
 
