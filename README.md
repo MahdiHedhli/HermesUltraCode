@@ -38,8 +38,10 @@ orchestrator base prompt ─▶ [ GATE ] ─▶ dispatched prompt ─▶ worker
   to the model.
 - 🔒 **Fail-closed, always** — a missing, late, garbled, or quota-starved verdict
   blocks-and-escalates. Silence is never a pass.
-- 🧬 **Reviewed by a different lab** — the reviewer must run on a different model lab than
-  the orchestrator (enforced at startup), so it never grades its own homework.
+- 🧬 **Reviewed by a *different lab* — on purpose** — the reviewer must run on a different
+  model lab than the orchestrator (enforced at startup). It can't grade its own homework,
+  and because it shares neither the orchestrator's training data nor its failure modes, it
+  catches the blind spots a same-lineage model waves through. ([more ↓](#cross-lab-review))
 - 🧾 **Audited like evidence** — one immutable, secret-redacted row per dispatch;
   `UPDATE`/`DELETE` blocked at the database; JSON/CSV export.
 - 🪶 **Zero runtime dependencies** — stdlib-only core, **155 offline tests**, the model
@@ -75,6 +77,30 @@ These are the design, enforced in code, not by trusting the model:
    UX feedback. The reviewer evaluates embedded instructions *as data*; it never executes
    them. — `core/gate.py:build_review_prompt`
 
+## Cross-lab review
+
+**The reviewer can't share the orchestrator's blind spots.** This is the headline feature,
+and a big part of why the gate is worth running: **the reviewer runs on a different model
+lab than the orchestrator** — and the gate refuses to start if they match. That one rule
+buys two distinct things:
+
+- **An independent second opinion.** Every worker dispatch is vetted by a model that had no
+  hand in writing it. The reviewer is *neutral* — its job is to maximise the worker's
+  success against the project guidelines — so it tightens the prompt or blocks it; it never
+  rubber-stamps to look agreeable.
+- **Bias & blind-spot diversity.** A model reviewing its own family's output shares that
+  family's training data, post-training, sycophancy, and systematic failure modes — so it is
+  structurally blind to exactly the mistakes it is most prone to make. A genuinely different
+  lab brings *different* failure modes, shrinking the set of errors that slip past **both**
+  models.
+
+That's why the check is on **lab**, not model size: *Anthropic reviewing Nous* is
+divergence; *GPT-4o reviewing GPT-4o-mini* is not. The gate hard-fails at startup
+(`validate_distinct_providers`, case-insensitive) rather than quietly review with a
+same-lineage model. Route the reviewer through OpenRouter, a Hermes provider, or the local
+`hermes proxy` — any lab, as long as it isn't the orchestrator's.
+— `core/providers.py`, `tests/test_provider_distinct.py`
+
 ## Architecture
 
 Three parts, one repo. Storage and model providers sit behind interfaces so the core
@@ -86,9 +112,9 @@ stays testable and portable.
 | **Hermes plugin** | `__init__.py` + `plugin.yaml` + `adapters/hermes_hook.py` | The Hermes-coupled layer. `register(ctx)` hooks `tool_request` (tighten) + `pre_tool_call` (block) on `delegate_task`; **fails closed** if the gate can't be configured. Verified against Hermes's real `PluginManager`. |
 | **Dashboard + read API** | `server/`, `web/` | Read-only views over the store, mirroring Hermes dashboard security. Optional read-only MCP server. |
 
-The **reviewer** is a model call routed to a provider that **must differ in lab** from the
-orchestrator's (genuine posttraining divergence, not same-family-different-size). This is
-validated at startup — identical labs hard-fail. — `core/providers.py:validate_distinct_providers`
+The **reviewer** is a model call routed behind a provider interface, on a different lab from
+the orchestrator (see [Cross-lab review](#cross-lab-review) above). The core never imports Hermes and makes no un-mockable
+network call, so it stays unit-testable offline with the provider mocked.
 
 ### The verdict (reviewer's structured output)
 
