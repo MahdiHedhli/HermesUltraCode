@@ -1,0 +1,30 @@
+{
+  "_comment": "Example gate config. The reviewer provider MUST be a different lab from the orchestrator (validated at startup). API keys are read from env vars, never committed.",
+  "orchestrator_provider": {
+    "kind": "hermes",
+    "lab": "nous",
+    "model": "hermes-4",
+    "api_key_env": "HERMES_API_KEY"
+  },
+  "reviewer_provider": {
+    "kind": "openrouter",
+    "lab": "anthropic",
+    "model": "anthropic/claude-3.5-sonnet",
+    "api_key_env": "OPENROUTER_API_KEY"
+  },
+  "round_cap": 2,
+  "reviewer_timeout_s": 30.0,
+  "max_directives": 12,
+  "store_path": "gate_audit.sqlite3",
+  "ponytail_orchestrator_mode": "full",
+  "ponytail_worker_mode": "full",
+  "tiering": {
+    "elevated_file_threshold": 10,
+    "elevated_cost_threshold_usd": 1.0,
+    "trivial_max_files": 1
+  },
+  "read_api": {
+    "host": "127.0.0.1",
+    "port": 9120
+  }
+}

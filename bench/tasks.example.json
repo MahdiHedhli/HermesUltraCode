@@ -1,0 +1,29 @@
+{
+  "_comment": "Example task corpus for bench/harness.py. The real corpus is user-provided. Each task has a base_prompt (the orchestrator's immutable prompt), dispatch meta (drives tiering), and the guideline risks a good gate should tighten against.",
+  "tasks": [
+    {
+      "id": "t1-csv-export",
+      "base_prompt": "Add a /export endpoint that returns the user's records as CSV. Wire it into the existing router.",
+      "meta": {"touched_paths": ["api/export.py", "api/router.py", "api/serializers.py"], "read_only": false},
+      "guideline_risks": ["input_validation", "missing_tests", "no_audit_log"]
+    },
+    {
+      "id": "t2-auth-rotate",
+      "base_prompt": "Rotate the session-signing key and update the auth middleware to accept both old and new keys during the grace window.",
+      "meta": {"touched_paths": ["src/auth/keys.py", "src/auth/middleware.py"], "read_only": false},
+      "guideline_risks": ["data_loss", "no_audit_log", "no_idempotency", "missing_tests"]
+    },
+    {
+      "id": "t3-readme-typo",
+      "base_prompt": "Fix the broken example in README.md so the install command is correct.",
+      "meta": {"touched_paths": ["README.md"], "read_only": false},
+      "guideline_risks": []
+    },
+    {
+      "id": "t4-bulk-delete",
+      "base_prompt": "Add a maintenance script that deletes stale cache rows older than 30 days from the database.",
+      "meta": {"touched_paths": ["scripts/prune_cache.py", "db/queries.py", "db/migrations/0007.sql", "config/cron.yaml", "infra/jobs.tf"], "read_only": false},
+      "guideline_risks": ["data_loss", "no_idempotency", "no_audit_log", "scope_creep", "missing_tests"]
+    }
+  ]
+}

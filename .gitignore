@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+*.sqlite3
+*.sqlite3-journal
+gate_audit*.sqlite3
+.venv/
+venv/
+.env
+bench_results.json
+.pytest_cache/
+.DS_Store

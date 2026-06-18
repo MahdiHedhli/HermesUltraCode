@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools==75.8.0", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermesultracode"
+version = "0.1.0"
+description = "Pre-dispatch prompt gate, ponytail discipline, and observability dashboard for a Hermes orchestrator."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "HermesUltraCode" }]
+keywords = ["hermes", "agent", "gate", "prompt-review", "ponytail", "iso27001"]
+
+# Runtime dependencies: NONE. The gate core, store (sqlite3), redaction, read API
+# (http.server) and MCP server (json) are all Python stdlib (ponytail rung 2).
+# This keeps the core offline-testable and ISO-clean — no supply-chain surface.
+dependencies = []
+
+[project.optional-dependencies]
+# Tests run on stdlib `unittest` (python -m unittest), so pytest is optional. Pinned
+# for anyone who prefers `pytest`. No network is required to run the suite.
+dev = [
+    "pytest==8.3.4",
+]
+# Real provider routing is stdlib urllib by default; pin an HTTP client only if you
+# swap in a heavier provider SDK later.
+
+[project.scripts]
+hermesultracode-dashboard = "server.__main__:main"
+hermesultracode-bench = "bench.harness:main"
+hermesultracode-mcp = "server.mcp_server:main"
+
+[project.urls]
+Homepage = "https://example.invalid/hermesultracode"
+
+[tool.setuptools]
+packages = ["core", "adapters", "server", "bench"]
+
+[tool.setuptools.package-data]
+# Vendored ruleset + dashboard assets travel with the package when installed.
+"*" = ["ruleset/*.md", "web/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

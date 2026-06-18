@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HermesUltraCode — Gate Dashboard</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>HermesUltraCode <span class="muted">· pre-dispatch gate</span></h1>
+    <div class="token-box">
+      <label for="token">Session token</label>
+      <input id="token" type="password" autocomplete="off" placeholder="paste from server startup banner" />
+      <button id="save-token" type="button">Connect</button>
+      <span id="conn-status" class="pill pill-warn" role="status">disconnected</span>
+    </div>
+  </header>
+
+  <nav class="tabs" aria-label="Dashboard views">
+    <button class="tab active" data-view="live">Live</button>
+    <button class="tab" data-view="queue">Queue</button>
+    <button class="tab" data-view="audit">Audit trail</button>
+    <button class="tab" data-view="ponytail">Ponytail</button>
+    <button class="tab" data-view="metrics">Metrics</button>
+  </nav>
+
+  <main>
+    <section id="failclosed-banner" class="failclosed" hidden>
+      <strong>Fail-closed counter:</strong>
+      <span id="failclosed-count">0</span>
+      dispatches blocked on reviewer error / timeout / quota. Silent degradation is visible here.
+    </section>
+
+    <!-- LIVE -->
+    <section class="view" id="view-live">
+      <h2>Live</h2>
+      <div class="cards" id="live-orchestrator"></div>
+      <h3>Active worker subagents</h3>
+      <table id="live-workers"><thead><tr>
+        <th>Worker</th><th>Backend</th><th>Status</th><th>Tier</th><th>Dispatch</th>
+      </tr></thead><tbody></tbody></table>
+      <h3>Current dispatch</h3>
+      <div id="live-current" class="kv"></div>
+    </section>
+
+    <!-- QUEUE -->
+    <section class="view" id="view-queue" hidden>
+      <h2>Queue <span class="muted">· pending dispatches, newest first</span></h2>
+      <table id="queue-table"><thead><tr>
+        <th>Time</th><th>Tier</th><th>Verdict</th><th>Decision</th><th>Rounds</th><th>Directives</th><th></th>
+      </tr></thead><tbody></tbody></table>
+    </section>
+
+    <!-- AUDIT -->
+    <section class="view" id="view-audit" hidden>
+      <h2>Audit trail <span class="muted">· immutable, redacted</span></h2>
+      <form id="audit-filters" class="filters">
+        <label>Tier
+          <select name="tier"><option value="">any</option>
+            <option>merge_adjacent</option><option>elevated</option>
+            <option>standard</option><option>trivial</option></select>
+        </label>
+        <label>Verdict
+          <select name="verdict"><option value="">any</option>
+            <option>pass</option><option>revise</option><option>block</option>
+            <option>unavailable</option></select>
+        </label>
+        <label>From <input type="date" name="from" /></label>
+        <label>To <input type="date" name="to" /></label>
+        <button type="submit">Filter</button>
+        <a id="export-json" href="#" class="btn">Export JSON</a>
+        <a id="export-csv" href="#" class="btn">Export CSV</a>
+      </form>
+      <table id="audit-table"><thead><tr>
+        <th>Time</th><th>Tier</th><th>Verdict</th><th>Decision</th><th>Rounds</th>
+        <th>Fail-closed</th><th>Latency</th><th>+tokens</th><th></th>
+      </tr></thead><tbody></tbody></table>
+    </section>
+
+    <!-- PONYTAIL -->
+    <section class="view" id="view-ponytail" hidden>
+      <h2>Ponytail</h2>
+      <h3>Debt ledger <span class="muted">· harvested <code>ponytail:</code> markers</span></h3>
+      <table id="debt-table"><thead><tr><th>File</th><th>Line</th><th>Upgrade path</th></tr></thead><tbody></tbody></table>
+      <h3>Protected-set violations the gate blocked</h3>
+      <div id="protected-violations"></div>
+    </section>
+
+    <!-- METRICS -->
+    <section class="view" id="view-metrics" hidden>
+      <h2>Metrics</h2>
+      <div class="cards" id="metric-cards"></div>
+      <h3>First-pass worker success — gate on vs off</h3>
+      <div id="bench-block" class="kv"><em>No benchmark results loaded.</em></div>
+    </section>
+  </main>
+
+  <!-- Per-dispatch gate panel (modal) -->
+  <dialog id="gate-panel">
+    <article id="gate-panel-body"></article>
+    <button id="gate-panel-close" type="button">Close</button>
+  </dialog>
+
+  <footer class="muted">
+    Read-only · loopback + session token + Host-check + localhost CORS.
+    Server-rendered (ponytail ladder applied); React 19 + Vite + Tailwind is the
+    documented upgrade path in <code>web/README.md</code>.
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,71 @@
+/* HermesUltraCode dashboard styles. ponytail: hand-written CSS, no Tailwind build
+   step (rung 1/2). Upgrade path: Tailwind in the React SPA — see web/README.md. */
+:root {
+  --bg: #0f1117; --panel: #181b24; --panel2: #1f2430; --ink: #e6e9ef;
+  --muted: #8b93a7; --line: #2a3040; --accent: #6ea8fe;
+  --ok: #3fb98a; --warn: #e0b341; --block: #e5604d; --esc: #c084fc;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: var(--bg); color: var(--ink); }
+h1 { font-size: 18px; margin: 0; } h2 { font-size: 16px; } h3 { font-size: 14px; color: var(--muted); }
+.muted { color: var(--muted); } .warn { color: var(--warn); }
+code { background: var(--panel2); padding: 1px 4px; border-radius: 4px; }
+pre { background: var(--panel2); padding: 10px; border-radius: 6px; overflow: auto; white-space: pre-wrap;
+  max-height: 240px; border: 1px solid var(--line); }
+
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.token-box { display: flex; align-items: center; gap: 8px; }
+.token-box label { color: var(--muted); }
+input, select { background: var(--panel2); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 8px; }
+button, .btn { background: var(--accent); color: #06101f; border: 0; border-radius: 6px;
+  padding: 6px 12px; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-block; }
+button:hover, .btn:hover { filter: brightness(1.1); }
+
+.pill { padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.pill-ok { background: rgba(63,185,138,.18); color: var(--ok); }
+.pill-warn { background: rgba(224,179,65,.18); color: var(--warn); }
+
+.tabs { display: flex; gap: 6px; padding: 10px 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.tab { background: transparent; color: var(--muted); border: 1px solid transparent; }
+.tab.active { background: var(--panel2); color: var(--ink); border-color: var(--line); }
+
+main { padding: 20px; max-width: 1100px; margin: 0 auto; }
+.view h2 { margin-top: 0; }
+
+.failclosed { background: rgba(229,96,77,.14); border: 1px solid var(--block); color: #ffd9d2;
+  padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; }
+
+table { width: 100%; border-collapse: collapse; margin: 8px 0 20px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); font-size: 13px; }
+th { color: var(--muted); font-weight: 600; }
+a.link-panel { color: var(--accent); }
+
+.cards { display: flex; flex-wrap: wrap; gap: 12px; margin: 10px 0 20px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 150px; }
+.card-h { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.card-b { margin-top: 4px; } .card-b.big { font-size: 22px; font-weight: 700; }
+
+.kv { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 14px; }
+.kv-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--line); }
+.kv-row:last-child { border-bottom: 0; } .kv-k { color: var(--muted); } .kv-v { font-weight: 600; }
+
+.filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 10px; }
+.filters label { display: flex; flex-direction: column; gap: 3px; color: var(--muted); font-size: 12px; }
+
+.badge { padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+.badge-merge_adjacent { background: rgba(229,96,77,.2); color: var(--block); }
+.badge-elevated { background: rgba(224,179,65,.2); color: var(--warn); }
+.badge-standard { background: rgba(110,168,254,.18); color: var(--accent); }
+.badge-trivial { background: rgba(139,147,167,.2); color: var(--muted); }
+.badge-ok { background: rgba(63,185,138,.2); color: var(--ok); }
+.badge-block { background: rgba(229,96,77,.2); color: var(--block); }
+.badge-esc { background: rgba(192,132,252,.2); color: var(--esc); }
+
+dialog { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 10px;
+  max-width: 820px; width: 92%; }
+dialog::backdrop { background: rgba(0,0,0,.6); }
+
+footer { padding: 16px 20px; border-top: 1px solid var(--line); font-size: 12px; }
