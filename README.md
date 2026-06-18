@@ -208,6 +208,14 @@ hermes skills publish skills/neckbeard --to github --repo <owner/skills>
 
 ## Neckbeard discipline
 
+<img src="docs/neckbeard.jpg" align="right" width="300" alt="Neckbeard mascot — doesn't write less code, writes the correct code" />
+
+> **"Doesn't write less code — writes the _correct_ code."** Lazy, not negligent: climb
+> the ladder (YAGNI → stdlib → platform → installed dep → one line), but never prune the
+> protected set. *(…then leaves 40 lines of review comments explaining why your version
+> was wrong, and refuses the dependency because the maintainer made a questionable
+> decision in 2019.)*
+
 > **Credit:** Neckbeard is a fork of the **Ponytail** ruleset (MIT), renamed for this
 > project — only the vendored *text* was lifted, nothing executable. Thanks to the
 > original Ponytail authors.
