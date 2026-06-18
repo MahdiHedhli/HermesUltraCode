@@ -10,6 +10,11 @@
 &nbsp;![Hermes plugin + skill](https://img.shields.io/badge/Hermes-plugin_%2B_skill-7c3aed?style=flat-square)
 &nbsp;![Degrades: fail-closed](https://img.shields.io/badge/degrades-fail--closed-e5604d?style=flat-square)
 
+<p align="center">
+  <img src="docs/dashboard.png" alt="HermesUltraCode dashboard — the immutable audit trail with blast-radius tier badges, decision badges, and the fail-closed counter" width="860">
+</p>
+<p align="center"><sub>The read-only dashboard — immutable audit trail with blast-radius tier badges, per-dispatch verdicts, and a <b>fail-closed counter</b> so silent degradation is <i>visible</i>, not hidden.</sub></p>
+
 A self-contained **pre-dispatch prompt gate**, **neckbeard generation discipline**, and
 **observability dashboard** layered onto an existing
 [Hermes Agent](https://nousresearch.com/) (Nous Research) orchestrator/worker setup. It
