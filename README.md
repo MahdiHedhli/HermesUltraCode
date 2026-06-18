@@ -191,17 +191,35 @@ block). This is also what surfaced the tighten validator's precision tuning belo
 
 ## Install as a Hermes plugin
 
-HermesUltraCode ships as a first-class **Hermes plugin** (the repo root is the plugin —
-`plugin.yaml` + `__init__.py`). Install and configure it:
+HermesUltraCode is a first-class **Hermes plugin** — the repo root *is* the plugin
+(`plugin.yaml` + `__init__.py`), so it installs natively with `hermes plugins install`. No
+marketplace needed; the public repo is the distribution channel. The flow below is verified
+end-to-end against a live Hermes (`install` → `enable` → the runtime loads `register()` and
+the `hermes ultracode-dashboard` command appears).
 
 ```bash
-hermes plugins install MahdiHedhli/HermesUltraCode    # clones + discovers the plugin
-# set the reviewer (a DIFFERENT lab than your orchestrator — startup enforces this):
-export HERMESULTRACODE_REVIEWER_API_KEY=sk-or-...      # e.g. OpenRouter
-export HERMESULTRACODE_REVIEWER_LAB=anthropic
+# 1. install from GitHub — clones the repo and discovers the plugin
+hermes plugins install MahdiHedhli/HermesUltraCode
+
+# 2. configure the reviewer FIRST (persist in ~/.hermes/.env so it survives restarts).
+#    The reviewer must be a DIFFERENT lab than your orchestrator — startup enforces it.
+export HERMESULTRACODE_REVIEWER_API_KEY=sk-or-...               # e.g. an OpenRouter key
+export HERMESULTRACODE_REVIEWER_LAB=anthropic                   # ≠ HERMESULTRACODE_ORCH_LAB (default: nous)
 export HERMESULTRACODE_REVIEWER_MODEL=anthropic/claude-3.5-sonnet
+#    …or point the reviewer at a local proxy instead of a key:
+#    export HERMESULTRACODE_REVIEWER_BASE_URL=http://127.0.0.1:8649/v1/chat/completions
+
+# 3. enable + reload so the plugin loads into the runtime
 hermes plugins enable hermesultracode
+hermes gateway restart          # or just start a new `hermes` session
 ```
+
+> ⚠️ **It fails closed by design.** Until a reviewer is configured, the gate **blocks every
+> `delegate_task`** rather than dispatch a worker un-vetted (invariant 1). Set the reviewer
+> env *before* you enable it — otherwise subagent delegation stops until you do (or you
+> `hermes plugins disable hermesultracode`). The gate's hooks/middleware enforce regardless
+> of toolset activation; the read-only query tools live in a `hermesultracode` toolset you
+> can enable when you want the agent to query verdicts itself.
 
 `register(ctx)` wires the gate into the **real Hermes dispatch seam** — verified against
 Hermes's own `PluginManager`/`PluginContext`:
