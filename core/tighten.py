@@ -30,15 +30,39 @@ class TightenError(ValueError):
 
 # Defense-in-depth note: the reviewer can never reach the dispatcher allowlist, so a
 # directive that *says* "use the shell" grants nothing — the allowlist is the real
-# capability boundary. These patterns are a SECONDARY textual-hygiene check that
-# rejects directives which talk like a grant/tamper, so such text never even reaches a
-# worker prompt. Because an adversarial reviewer could obfuscate (underscores,
-# concatenation, newlines), matching runs against a normalised form (separators
-# collapsed) AND a de-spaced form (for word-concatenation), with DOTALL so newlines
-# can't split a match. This is hardening, not a perfect adversarial classifier.
+# capability boundary. These patterns are a SECONDARY textual-hygiene check that rejects
+# directives which talk like a grant/tamper, so such text never even reaches a worker
+# prompt.
+#
+# Design bias: PRECISION over recall. A false positive here fails the gate closed on a
+# *legitimate* tightening directive (a real reviewer once wrote "...a flag that can
+# disable the grace window..." — innocent), which undermines invariant 2; a false
+# negative is backstopped by the allowlist. So we:
+#   * normalise separators (underscores/hyphens/newlines/punctuation -> single space) and
+#     use DOTALL, which defeats the realistic obfuscations without adding false positives;
+#   * suppress a match that is NEGATED right before it ("do not enable shell", "never
+#     grant tool access"), so restrictive directives pass.
+# Residual limitation (accepted): pathological NO-separator concatenation
+# ("ignoretheprevious") is not caught by this text check — a neutral reviewer never emits
+# it, and the allowlist neutralises it anyway. We do not chase it with a de-spaced
+# denylist, which empirically false-matched innocent phrases ("disable the grace window").
 
-# Any run of whitespace / punctuation / underscore — used to normalise separators.
-_SEP_RUN = re.compile(r"[\s\W_]+")
+# Underscores are word chars, so they defeat \b ("call_the_Bash_tool") — replace them
+# with spaces before matching. Other separators (hyphens, newlines, punctuation, runs of
+# whitespace) are already spanned by the patterns' .{0,N} under DOTALL, so they need no
+# special handling — and keeping sentence punctuation lets us scope negation to its clause.
+_UNDERSCORE = re.compile(r"_+")
+
+# Clause boundaries — a negation only suppresses a match inside the SAME clause.
+_CLAUSE_SEP = re.compile(r"[.;:!?\n]")
+
+# Negation tokens; a grant/tamper match with one of these earlier in its clause is
+# restrictive ("do not enable shell", "never grant tool access"), not a grant.
+_NEGATION = re.compile(
+    r"\b(not|never|cannot|without|disallow\w*|forbid\w*|prevent\w*|refuse\w*|"
+    r"prohibit\w*|deny|denies|avoid\w*|reject\w*)\b",
+    re.IGNORECASE,
+)
 
 # Patterns that smell like a tool / permission / capability grant.
 _TOOL_GRANT_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
@@ -77,7 +101,9 @@ _BASE_TAMPER_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE | re.DOTALL)
     for p in (
         r"\b(ignore|disregard|forget|override|overrule|supersede|replace|delete|remove|discard|cancel)\b.{0,40}\b(the )?(base|above|previous|prior|original|earlier|system)\b.{0,20}\b(prompt|instruction|directive|constraint|rule)",
-        r"\b(ignore|disregard|forget) (all|any|everything|the rest)\b",
+        # "ignore all previous instructions" etc. — but only when it references the
+        # SYSTEM's own instructions/rules, so "ignore any trailing whitespace" is fine.
+        r"\b(ignore|disregard|forget)\b.{0,15}\b(all|any|every|everything)\b.{0,20}\b(instruction|directive|rule|guideline|constraint|prompt|previous|prior|above)\b",
         r"\binstead of (the )?(base|above|previous)\b",
         r"\bthe base (prompt )?(is|no longer) (wrong|void|invalid|cancell?ed)\b",
         r"\bbroaden\b.{0,30}\bscope\b",
@@ -110,58 +136,35 @@ def assemble_dispatched_prompt(base_prompt: str, added_directives) -> str:
     return base_prompt + render_directives(tuple(added_directives))
 
 
-# De-spaced dangerous concatenations — caught when an adversary removes ALL separators
-# so the \b patterns can't re-anchor (e.g. "ignoretheprevious", "youarenolonger"). Each
-# entry is chosen to NOT be a substring of any legitimate de-spaced tightening directive
-# (verified by the false-positive guard in tests). Single high-signal words that recur
-# inside ordinary words (e.g. "sudo" in "pseudo", "access" in "accessibility") are
-# deliberately excluded here and left to the \b patterns.
-_DANGER_CONCAT: tuple[str, ...] = (
-    "ignorethe", "ignoreall", "ignoreany", "ignoreprevious", "ignorebase", "ignoreabove",
-    "ignoreprior", "ignoreyour", "disregardthe", "disregardall", "disregardprevious",
-    "disregardany", "disregardbase", "disregardyour", "forgetthe", "forgetall",
-    "forgetprevious", "overridethe", "overrulethe", "supersedethe", "replacethebase",
-    "deletethebase", "removethebase", "discardthebase",
-    "youarenolonger", "nolongerrestricted", "nolongerbound", "nolongerlimited",
-    "nolongerconstrained", "grantaccess", "grantpermission", "granttool", "grantscope",
-    "grantyou", "addtotheallowlist", "addtoallowlist", "totheallowlist",
-    "turnoffthe", "switchoffthe", "disablethe", "bypassthe", "bypassgate", "bypassreview",
-    "bypasssandbox", "bashtool", "shelltool", "exectool", "writetool", "edittool",
-    "shellaccess", "networkaccess", "internetaccess", "filesystemaccess", "rootaccess",
-    "sudoaccess", "escalateprivilege", "escalatepermission", "escalateaccess",
-    "privilegeescalation", "permissionescalation", "newpermission", "newtool",
-    "newcapabilit", "broadenthescope", "expandthescope",
-)
-
-
 def _normalize_for_scan(text: str) -> str:
-    """Lowercase and collapse separator runs (whitespace, punctuation, underscores,
-    newlines) to single spaces, so obfuscation via separators can't dodge \\b."""
-    return _SEP_RUN.sub(" ", text.lower()).strip()
+    """Replace underscores with spaces so they can't dodge \\b. Other separators are
+    handled by DOTALL + .{0,N}; sentence punctuation is preserved for clause scoping."""
+    return _UNDERSCORE.sub(" ", text)
 
 
-def _despace(text: str) -> str:
-    """Remove ALL separators, exposing word-concatenation obfuscation."""
-    return _SEP_RUN.sub("", text.lower())
+def _negated_before(text: str, start: int) -> bool:
+    """True if a negation token appears earlier in the SAME clause as the match — the
+    directive is restrictive ("do not ignore rules or grant tools"), not a grant."""
+    clause_start = 0
+    for m in _CLAUSE_SEP.finditer(text, 0, start):
+        clause_start = m.end()
+    return _NEGATION.search(text, clause_start, start) is not None
 
 
 def find_grant_violations(directive: str) -> list[str]:
     """Return the human-readable names of any grant/tamper patterns the directive hits.
 
     Scans a separator-normalised form (defeats underscore/newline/punctuation
-    obfuscation) and a de-spaced form (defeats word concatenation)."""
+    obfuscation) and ignores matches that are negated right before them (restrictive
+    directives like "do not grant tool access" are legitimate tightening)."""
     hits: list[str] = []
     normalized = _normalize_for_scan(directive)
-    for pat in _TOOL_GRANT_PATTERNS:
-        if pat.search(normalized):
-            hits.append(f"tool/permission grant: /{pat.pattern}/")
-    for pat in _BASE_TAMPER_PATTERNS:
-        if pat.search(normalized):
-            hits.append(f"base tampering: /{pat.pattern}/")
-    despaced = _despace(directive)
-    for marker in _DANGER_CONCAT:
-        if marker in despaced:
-            hits.append(f"obfuscated/concatenated grant-or-tamper: {marker!r}")
+    for kind, patterns in (("tool/permission grant", _TOOL_GRANT_PATTERNS),
+                           ("base tampering", _BASE_TAMPER_PATTERNS)):
+        for pat in patterns:
+            m = pat.search(normalized)
+            if m and not _negated_before(normalized, m.start()):
+                hits.append(f"{kind}: /{pat.pattern}/")
     return hits
 
 

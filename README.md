@@ -124,7 +124,21 @@ python -m server --store gate_audit.sqlite3 --bench bench_results.json
 
 # 4. (optional) read-only MCP server for the Hermes agent
 python -m server.mcp_server --store gate_audit.sqlite3
+
+# 5. Live smoke test against a real model via the installed Hermes proxy
+hermes proxy start --provider xai --host 127.0.0.1 --port 8649   # in another shell
+python -m bench.smoke_hermes      # routes the reviewer through xAI (a different lab)
 ```
+
+### Live smoke test (`bench/smoke_hermes.py`)
+
+Exercises the whole gate end-to-end with a **real reviewer call** routed through
+`hermes proxy` (Hermes's local OpenAI-compatible endpoint). xAI Grok is a genuinely
+different lab from the Nous orchestrator, so this is a faithful test of invariant 6, not
+a workaround. It runs a benign task (→ dispatch), a protected-path task (→ the live model
+appends the extended-protected-set directives — audit logging, idempotency, retries/
+backoff, validation — then dispatches), and a prompt-injection-laden base (→ fail-closed
+block). This is also what surfaced the tighten validator's precision tuning below.
 
 ### Wiring into Hermes
 
