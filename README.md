@@ -192,10 +192,10 @@ block). This is also what surfaced the tighten validator's precision tuning belo
 ## Install as a Hermes plugin
 
 HermesUltraCode is a first-class **Hermes plugin** — the repo root *is* the plugin
-(`plugin.yaml` + `__init__.py`), so it installs natively with `hermes plugins install`. No
-marketplace needed; the public repo is the distribution channel. The flow below is verified
-end-to-end against a live Hermes (`install` → `enable` → the runtime loads `register()` and
-the `hermes ultracode-dashboard` command appears).
+(`plugin.yaml` + `__init__.py`), so it installs natively with `hermes plugins install`
+straight from the public repo (which *is* the distribution channel — no central registry
+required). The flow below is verified end-to-end against a live Hermes (`install` → `enable`
+→ the runtime loads `register()` and the `hermes ultracode-dashboard` command appears).
 
 ```bash
 # 1. install from GitHub — clones the repo and discovers the plugin
