@@ -605,9 +605,11 @@ _PLAN_SYSTEM = (
 )
 
 _PLAN_FOOTER = (
-    "\n\n— Answer the open questions, then send the refined task to me to build (I scope-first "
-    "by default), or run `/ultracode yolo <task>` to skip planning. Either way the build is "
-    "gate-reviewed and tightened to a target directory."
+    "\n\n— For INTERACTIVE scoping (one decision at a time, with buttons), send this as a "
+    "normal message — I'll ask via the clarify tool and wait for each answer. A slash command "
+    "can't run that loop, so this view is one-shot. Or answer above and send it back, or "
+    "`/ultracode yolo <task>` to skip planning. Either way the build is gate-reviewed and "
+    "tightened to a target directory."
 )
 
 

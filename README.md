@@ -292,7 +292,9 @@ session start:
   the agent's own `delegate_task` — is tightened with *“declare a target directory and write
   only within it.”* It's a tighten-only policy directive (never a block) seeded into the gate;
   disable with `HERMESULTRACODE_DIRECTORY_DIRECTIVE=0`. The **scope-first skill** makes the
-  agent establish that directory up front, interactively (bypass with “yolo”).
+  agent establish that directory up front *interactively* — it drives Hermes's `clarify` tool
+  (button prompts, one decision at a time) when you send a build request as a normal message;
+  the one-shot `/ultracode plan` can't (no agent loop in a slash subprocess). Bypass with “yolo”.
 - **Text views (work in the TUI, since they're just printed):** `/ultracode help` (all
   commands), `status` (gate + dashboard link), `agents` (active subagents + recent output),
   `verdicts` (recent gate decisions), `dashboard` (opens the browser). The command is reachable

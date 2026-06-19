@@ -277,6 +277,7 @@ class ManifestAndSkillTest(unittest.TestCase):
         self.assertIn("description:", text)
         self.assertIn("version:", text)
         self.assertIn("Target directory", text)                # the directory-first rule
+        self.assertIn("clarify", text.lower())                 # drives the interactive question tool
         self.assertIn("yolo", text.lower())                    # documents the bypass
 
 
