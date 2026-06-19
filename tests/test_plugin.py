@@ -120,6 +120,7 @@ class PluginRegisterTest(unittest.TestCase):
         ctx = FakeCtx()
         self.plugin.register(ctx)
         self.assertIn("neckbeard", ctx.skills)
+        self.assertIn("scope-first", ctx.skills)
         self.assertIn("ultracode-dashboard", ctx.cli)
 
     def test_registers_ultracode_command_and_session_hook(self):
@@ -168,9 +169,19 @@ class PluginRegisterTest(unittest.TestCase):
     def test_ultracode_failclosed_blocks_delegation(self):
         ctx = FakeCtx()
         self.plugin.register(ctx)                               # no reviewer -> fail-closed
-        out = ctx.commands["ultracode"]["handler"]("do the risky thing")
+        out = ctx.commands["ultracode"]["handler"]("yolo do the risky thing")
         self.assertIn("did NOT release", out)
         self.assertEqual(ctx.dispatch_calls, [])                # blocked -> never dispatched
+
+    def test_ultracode_default_is_plan(self):
+        ctx = FakeCtx()
+        self.plugin.register(ctx)                               # no reviewer -> gate None -> scaffold
+        h = ctx.commands["ultracode"]["handler"]
+        for inp in ("build an html5 chess game", "plan build an html5 chess game"):
+            out = h(inp)
+            self.assertIn("plan", out.lower())
+            self.assertIn("Target directory", out)             # the scoping scaffold
+        self.assertEqual(ctx.dispatch_calls, [])               # planning never delegates
 
     def test_hyperlink_plain_by_default_osc8_optin(self):
         h = self.plugin._hyperlink
@@ -190,7 +201,7 @@ class PluginRegisterTest(unittest.TestCase):
         hdg = HermesDispatchGate(gate=make_gate(reviewer_responses=[verdict_json("pass", ["Add tests."])]))
         ctx = FakeCtx()
         handler = self.plugin._make_ultracode_command(ctx, hdg, os.environ["HERMESULTRACODE_STORE"])
-        out = handler("implement a CSV exporter")
+        out = handler("yolo implement a CSV exporter")          # yolo skips planning, delegates
         self.assertEqual(len(ctx.dispatch_calls), 1)
         tool, args = ctx.dispatch_calls[0]
         self.assertEqual(tool, "delegate_task")
@@ -207,7 +218,7 @@ class PluginRegisterTest(unittest.TestCase):
         ctx = FakeCtx()
         ctx.dispatch_result = '{"error": "delegate_task requires a parent agent context."}'
         handler = self.plugin._make_ultracode_command(ctx, hdg, os.environ["HERMESULTRACODE_STORE"])
-        out = handler("build a chess game")
+        out = handler("yolo build a chess game")                # yolo path hits dispatch_tool
         self.assertIn("APPROVED", out)                          # gate approved, not "failed"
         self.assertIn("normal message", out)                    # steer to the flow that works
         self.assertIn("build a chess game", out)                # the approved goal is handed back
@@ -257,6 +268,16 @@ class ManifestAndSkillTest(unittest.TestCase):
         # the extended protected set must be present
         for item in ("observability", "audit logging", "idempotency", "retries"):
             self.assertIn(item, text.lower())
+
+    def test_scope_first_skill_frontmatter(self):
+        with open(os.path.join(REPO_ROOT, "skills", "scope-first", "SKILL.md"), encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertTrue(text.startswith("---"))
+        self.assertIn("name: scope-first", text)
+        self.assertIn("description:", text)
+        self.assertIn("version:", text)
+        self.assertIn("Target directory", text)                # the directory-first rule
+        self.assertIn("yolo", text.lower())                    # documents the bypass
 
 
 if __name__ == "__main__":

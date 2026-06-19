@@ -34,7 +34,8 @@ def verdict_json(verdict="pass", added_directives=None, rationale="ok",
 
 
 def make_gate(reviewer_responses=None, *, reviewer=None, store=None,
-              round_cap=2, cheap=None, tiering_config=None, reviewer_timeout_s=5.0) -> Gate:
+              round_cap=2, cheap=None, tiering_config=None, reviewer_timeout_s=5.0,
+              workspace_directive=None) -> Gate:
     """Build a Gate wired to mock providers and an in-memory store."""
     if reviewer is None:
         reviewer = MockProvider(lab="reviewer-lab", model="reviewer-x")
@@ -50,6 +51,7 @@ def make_gate(reviewer_responses=None, *, reviewer=None, store=None,
         reviewer_timeout_s=reviewer_timeout_s,
         tiering_config=tiering_config or TieringConfig(),
         cheap_reviewer_provider=cheap,
+        workspace_directive=workspace_directive,
     )
 
 

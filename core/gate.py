@@ -191,6 +191,7 @@ class Gate:
         max_directive_len: int = 2000,
         tiering_config: TieringConfig | None = None,
         cheap_reviewer_provider: Provider | None = None,
+        workspace_directive: str | None = None,
     ) -> None:
         self.reviewer = reviewer_provider
         self.orchestrator = orchestrator_provider
@@ -201,6 +202,18 @@ class Gate:
         self.max_directive_len = max_directive_len
         self.tiering_config = tiering_config or TieringConfig()
         self.cheap_reviewer = cheap_reviewer_provider
+        # An optional deterministic policy tighten: seeded into the directives for every
+        # NON-read-only (file-writing) review so a build must declare and stay within a
+        # target directory. Opt-in (default None) so it never changes a read-only or
+        # explicitly-unconfigured gate; it still flows through validate_tighten like any
+        # other directive, so it is proven append-only and grant-free.
+        self.workspace_directive = (workspace_directive or "").strip() or None
+
+    def _seed_directives(self, meta: DispatchMeta) -> tuple[str, ...]:
+        """Deterministic policy directives prepended to a review's tightening."""
+        if self.workspace_directive and not meta.read_only:
+            return (self.workspace_directive,)
+        return ()
 
     # -- public entry point --------------------------------------------------
 
@@ -266,7 +279,7 @@ class Gate:
         max_rounds: int | None = None,
     ) -> DispatchResult:
         rounds = self.round_cap if max_rounds is None else min(max_rounds, self.round_cap)
-        accumulated: tuple[str, ...] = ()
+        accumulated: tuple[str, ...] = self._seed_directives(meta)
         last_verdict: Verdict | None = None
         round_count = 0
 

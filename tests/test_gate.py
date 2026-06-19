@@ -24,6 +24,20 @@ class GateEndToEndTest(unittest.TestCase):
         self.assertEqual(res.added_directives, ())
         self.assertEqual(res.dispatched_prompt, BASE)
 
+    def test_workspace_directive_tightens_file_writing_only(self):
+        # Directory discipline: a non-read-only review gets the policy directive seeded
+        # (and it survives the tighten-only guard); a read-only/trivial dispatch does not.
+        D = "Confine writes to the target directory."
+        gate = make_gate(reviewer_responses=[verdict_json("pass", []), verdict_json("pass", [])],
+                         workspace_directive=D)
+        res = gate.review_and_dispatch(BASE, standard_meta())          # file-writing
+        self.assertTrue(res.released)
+        self.assertIn(D, res.dispatched_prompt)
+        self.assertTrue(res.dispatched_prompt.startswith(BASE))        # base verbatim, directive appended
+        res2 = gate.review_and_dispatch(BASE, DispatchMeta(read_only=True, file_count=0))
+        self.assertTrue(res2.released)
+        self.assertNotIn(D, res2.dispatched_prompt or "")             # read-only: no directive
+
     def test_revise_appends_then_dispatches_on_pass(self):
         gate = make_gate(
             reviewer_responses=[

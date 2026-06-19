@@ -256,6 +256,8 @@ Hermes's own `PluginManager`/`PluginContext`:
 | **Tighten** | `tool_request` middleware on `delegate_task` (runs first; rewrites args) | rewrites the subagent's `goal` → base verbatim + appended directives |
 | **Block** | `pre_tool_call` hook on `delegate_task` (returns `{"action":"block"}`) | refuses a dispatch the gate didn't release; **fail-closed if unconfigured** |
 | **Observe** | `register_tool` (`gate_metrics`, `gate_audit_query`, `gate_recent_verdicts`) | the Hermes agent can answer "show me today's gate verdicts" |
+| **Plan** | `register_command('ultracode', …)` — planning is the default; `yolo` bypasses | scoping pass (questions + target dir) before a build; `register_skill('scope-first', …)` makes the agent plan-first |
+| **Directory** | `Gate.workspace_directive` seeded into every file-writing review | tightens each build to *declare and stay within a target directory* (off via `HERMESULTRACODE_DIRECTORY_DIRECTIVE=0`) |
 | **Neckbeard** | `register_skill('neckbeard', …)` + `skills/neckbeard/SKILL.md` | the minimalism ruleset as an installable skill |
 | **Dashboard** | `register_cli_command('ultracode-dashboard', …)` | `hermes ultracode-dashboard` launches the read API |
 
@@ -275,12 +277,22 @@ a command for the gate to work.
 `/ultracode` adds an explicit trigger + text views, and the dashboard surfaces on every
 session start:
 
-- **`/ultracode <task>`** — gate-reviews the task and runs it. In the **CLI** it dispatches
-  `delegate_task` for you (tightened goal reaches the subagent; a blocked task returns the
-  gate's reason). In the **TUI** a slash command runs in a worker subprocess with no agent
-  context, so it *can't* spawn a subagent — it previews the gate's decision and hands you the
-  approved goal to send as a message (where the gate applies automatically). Blocked tasks are
+- **`/ultracode <task>` — plan first (the default).** A generic request first gets a *scoping
+  pass*: clarifying questions, a proposed **target directory**, files, acceptance criteria, and
+  out-of-scope — so the build is disciplined before a line is written. The reviewer model
+  tailors it; a deterministic scaffold is the offline fallback. `/ultracode plan <task>` is the
+  explicit form.
+- **`/ultracode yolo <task>` — skip planning and build.** Bypasses the scoping pass only — the
+  gate still reviews, tightens, and (for file-writing work) appends the **target-directory
+  directive**. In the **CLI** it dispatches `delegate_task`; in the **TUI** (a slash command
+  runs in a worker subprocess with no agent context) it can't spawn a subagent, so it reports
+  the gate's decision and hands you the approved goal to send as a message. Blocked tasks are
   reported, never dispatched.
+- **Directory discipline (automatic).** Every file-writing delegation — via the command *or*
+  the agent's own `delegate_task` — is tightened with *“declare a target directory and write
+  only within it.”* It's a tighten-only policy directive (never a block) seeded into the gate;
+  disable with `HERMESULTRACODE_DIRECTORY_DIRECTIVE=0`. The **scope-first skill** makes the
+  agent establish that directory up front, interactively (bypass with “yolo”).
 - **Text views (work in the TUI, since they're just printed):** `/ultracode help` (all
   commands), `status` (gate + dashboard link), `agents` (active subagents + recent output),
   `verdicts` (recent gate decisions), `dashboard` (opens the browser). The command is reachable

@@ -35,6 +35,15 @@ def _ensure_importable() -> None:
         sys.path.insert(0, _HERE)
 
 
+# Deterministic directory-discipline tighten, seeded into every file-writing review (see
+# Gate.workspace_directive). Phrased restrictively so it survives the tighten-only guard.
+WORKSPACE_DIRECTIVE = (
+    "State the target directory for this work before writing code, and confine all file "
+    "creation and edits to that directory; do not change files outside it without explicit "
+    "instruction."
+)
+
+
 def _default_store_path() -> str:
     base = os.environ.get(
         "HERMESULTRACODE_STORE",
@@ -77,6 +86,11 @@ def _build_gate(store):
     orchestrator = HermesProvider(lab=orch_lab, model="hermes-orchestrator")
     validate_distinct_providers(orchestrator, reviewer)  # raises if labs match
 
+    # Directory discipline: every file-writing delegation is tightened to declare and stay
+    # within a target directory (set HERMESULTRACODE_DIRECTORY_DIRECTIVE=0 to disable).
+    workspace = ("" if os.environ.get("HERMESULTRACODE_DIRECTORY_DIRECTIVE", "1").lower()
+                 in ("0", "false", "no", "off") else WORKSPACE_DIRECTIVE)
+
     return Gate(
         reviewer_provider=reviewer,
         orchestrator_provider=orchestrator,
@@ -84,6 +98,7 @@ def _build_gate(store):
         round_cap=int(os.environ.get("HERMESULTRACODE_ROUND_CAP", "2")),
         reviewer_timeout_s=float(os.environ.get("HERMESULTRACODE_REVIEWER_TIMEOUT_S", "30")),
         tiering_config=TieringConfig(),
+        workspace_directive=workspace,
     )
 
 
@@ -216,16 +231,20 @@ def register(ctx) -> None:
         except Exception as exc:  # noqa: BLE001
             log.warning("hermesultracode: query tools not registered: %s", exc)
 
-    # Neckbeard ruleset as a companion skill (opt-in load).
-    try:
-        from pathlib import Path
+    # Companion skills (opt-in load): neckbeard (how code is written) + scope-first (plan
+    # before building — establish target dir/scope, the default the gate's directive backs).
+    for _sname, _sdesc in (
+        ("neckbeard", "Neckbeard minimalism ladder + extended protected set."),
+        ("scope-first", "Plan-first discipline: scope + target directory before a build."),
+    ):
+        try:
+            from pathlib import Path
 
-        skill_md = Path(_HERE) / "skills" / "neckbeard" / "SKILL.md"
-        if skill_md.exists():
-            ctx.register_skill("neckbeard", skill_md,
-                               description="Neckbeard minimalism ladder + extended protected set.")
-    except Exception as exc:  # noqa: BLE001
-        log.debug("hermesultracode: neckbeard skill not registered: %s", exc)
+            skill_md = Path(_HERE) / "skills" / _sname / "SKILL.md"
+            if skill_md.exists():
+                ctx.register_skill(_sname, skill_md, description=_sdesc)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("hermesultracode: %s skill not registered: %s", _sname, exc)
 
     # Dashboard launcher: `hermes ultracode-dashboard`.
     try:
@@ -436,25 +455,28 @@ _UC_HELP = """\
 The gate reviews EVERY delegate_task automatically — in the TUI, just send a task as a
 normal message and the gate applies (tightens or blocks the delegation). No command needed.
 Commands:
-  /ultracode <task>      gate-review <task> and run it. Runs the subagent in the CLI; in the
-                         TUI a slash command can't spawn one, so it previews + hands you the
-                         approved goal to send as a message.
-  /ultracode status      gate state + dashboard link
-  /ultracode agents      active subagents + recently completed (what's running, where it is)
-  /ultracode verdicts    recent gate verdicts (tier · verdict · decision)
-  /ultracode dashboard   open the dashboard in your browser
-  /ultracode help        this help"""
+  /ultracode <task>       PLAN first — scoping questions + a proposed target directory
+                          before any build (planning is the default for disciplined builds)
+  /ultracode plan <task>  same as above, explicit
+  /ultracode yolo <task>  skip planning and build — still gate-reviewed + directory-tightened
+  /ultracode status       gate state + dashboard link
+  /ultracode agents       active subagents + recently completed (what's running, where it is)
+  /ultracode verdicts     recent gate verdicts (tier · verdict · decision)
+  /ultracode dashboard    open the dashboard in your browser
+  /ultracode help         this help"""
 
 
 def _make_ultracode_command(ctx, hdg, store_path: str):
-    """`/ultracode` dispatches sub-views (help/status/agents/verdicts/dashboard) or, for
-    anything else, treats the args as a task and delegates it through the gate. The return
-    string is printed to the user (it does not feed the agent), so views are rendered as
-    text tables and delegation is done directly via ctx.dispatch_tool — which is also how a
-    plugin shows tasks/subagents inside the TUI (there is no plugin TUI-panel API)."""
+    """`/ultracode` dispatches sub-views (help/status/agents/verdicts/dashboard); otherwise
+    the args are a task. Planning is the DEFAULT (`/ultracode <task>` -> a scoping pass);
+    `/ultracode yolo <task>` skips planning and delegates (still gate-reviewed + directory-
+    tightened). The return string is printed to the user (it does not feed the agent), so
+    views/plans are text and delegation goes via ctx.dispatch_tool (CLI) with a graceful
+    TUI fallback."""
 
     def handler(raw_args: str):
-        low = (raw_args or "").strip().lower()
+        text = (raw_args or "").strip()
+        low = text.lower()
         if low in ("", "help", "?", "-h", "--help"):
             return f"🛂 HermesUltraCode gate: {_gate_status(hdg)}\n\n{_UC_HELP}"
         if low == "status":
@@ -465,7 +487,15 @@ def _make_ultracode_command(ctx, hdg, store_path: str):
             return _uc_agents()
         if low in ("verdicts", "log", "audit", "gate", "history"):
             return _uc_verdicts(store_path)
-        return _uc_delegate(ctx, hdg, (raw_args or "").strip())
+        # A task. Planning is the DEFAULT; `yolo` skips planning (never the gate); `plan`
+        # is the explicit form.
+        first, _, rest = text.partition(" ")
+        rest = rest.strip()
+        if first.lower() == "yolo":
+            return _uc_delegate(ctx, hdg, rest) if rest else "Usage: /ultracode yolo <task>"
+        if first.lower() == "plan":
+            return _uc_plan(hdg, rest)
+        return _uc_plan(hdg, text)
 
     return handler
 
@@ -558,6 +588,59 @@ def _uc_verdicts(store_path: str) -> str:
         ["TIME", "TIER", "VERDICT", "DECISION", "GOAL"],
         [[(r.ts[11:19] if len(r.ts) >= 19 else r.ts), r.tier, r.verdict, r.decision,
           _short(r.base_prompt, 38)] for r in rows])  # base_prompt is already redacted on write
+
+
+_PLAN_SYSTEM = (
+    "You are a scoping assistant for a software build. The user message is a build request. "
+    "BEFORE any code is written, produce a short scoping plan so the build is well-defined. "
+    "Output these sections, concisely as bullet points, and DO NOT write the implementation:\n"
+    "1. Clarifying questions — only those that materially change what gets built (omit if the "
+    "request is already precise).\n"
+    "2. Target directory — a concrete path where the code should live.\n"
+    "3. Files to create — the main files/modules.\n"
+    "4. Acceptance criteria — how we will know it is done.\n"
+    "5. Out of scope — what this explicitly will NOT include.\n"
+    "6. Risks / unknowns.\n"
+    "Keep it tight."
+)
+
+_PLAN_FOOTER = (
+    "\n\n— Answer the open questions, then send the refined task to me to build (I scope-first "
+    "by default), or run `/ultracode yolo <task>` to skip planning. Either way the build is "
+    "gate-reviewed and tightened to a target directory."
+)
+
+
+def _uc_plan(hdg, task: str) -> str:
+    """Plan-first (the default): a one-shot scoping pass. Uses the reviewer model to tailor
+    the plan; falls back to a deterministic scaffold if no reviewer is available."""
+    task = (task or "").strip()
+    if not task:
+        return "Usage: /ultracode plan <task>   (planning is also the default: /ultracode <task>)"
+    gate = getattr(hdg, "gate", None)
+    reviewer = getattr(gate, "reviewer", None) if gate is not None else None
+    if reviewer is not None:
+        try:
+            plan = reviewer.complete(_PLAN_SYSTEM, task, timeout=getattr(gate, "reviewer_timeout_s", 30.0))
+            if plan and plan.strip():
+                return f"🧭 HermesUltraCode plan — {task}\n\n{plan.strip()}{_PLAN_FOOTER}"
+        except Exception as exc:  # noqa: BLE001 - planning is best-effort; fall back
+            log.info("hermesultracode: plan generation fell back to scaffold: %s", exc)
+    return _uc_plan_scaffold(task)
+
+
+def _uc_plan_scaffold(task: str) -> str:
+    return (
+        f"🧭 HermesUltraCode plan — {task}\n\n"
+        "Nail these down before building (planning is the default — it keeps builds disciplined):\n"
+        "  1. Target directory — where should the code live? (required before any file is written)\n"
+        "  2. Scope — the minimal first version, and what's explicitly out of scope\n"
+        "  3. Stack / constraints — language, framework, dependencies, versions\n"
+        "  4. Acceptance criteria — how we'll know it's done\n"
+        "  5. Data / interfaces — inputs, outputs, APIs, files it touches\n"
+        "  6. Risks / unknowns"
+        + _PLAN_FOOTER
+    )
 
 
 def _uc_delegate(ctx, hdg, text: str) -> str:
