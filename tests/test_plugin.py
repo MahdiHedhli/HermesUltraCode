@@ -172,14 +172,14 @@ class PluginRegisterTest(unittest.TestCase):
         self.assertIn("did NOT release", out)
         self.assertEqual(ctx.dispatch_calls, [])                # blocked -> never dispatched
 
-    def test_hyperlink_osc8_and_toggle(self):
+    def test_hyperlink_plain_by_default_osc8_optin(self):
         h = self.plugin._hyperlink
-        on = h("http://127.0.0.1:9120/?token=abc")
-        self.assertIn("\033]8;;http://127.0.0.1:9120/?token=abc", on)  # OSC 8 link emitted
-        self.assertIn("http://127.0.0.1:9120/?token=abc", on)          # visible/copyable label
-        os.environ["HERMESULTRACODE_HYPERLINKS"] = "0"
+        # plain, copyable URL by default — OSC 8 renders as junk in the Hermes TUI
+        self.assertEqual(h("http://127.0.0.1:9120/?token=abc"), "http://127.0.0.1:9120/?token=abc")
+        os.environ["HERMESULTRACODE_HYPERLINKS"] = "1"
         try:
-            self.assertEqual(h("http://x/y"), "http://x/y")            # plain when disabled
+            on = h("http://x/y")
+            self.assertIn("\033]8;;http://x/y", on)                    # OSC 8 only when opted in
         finally:
             os.environ.pop("HERMESULTRACODE_HYPERLINKS", None)
 

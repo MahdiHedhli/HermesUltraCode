@@ -296,9 +296,10 @@ def make_handler(ctx: ReadApiContext) -> type[BaseHTTPRequestHandler]:
         def do_OPTIONS(self) -> None:  # noqa: N802
             self._dispatch()
 
-        def log_message(self, fmt, *args) -> None:  # quiet; we do structured logging
+        def log_message(self, fmt, *args) -> None:  # quiet — DEBUG so dashboard polling
+            # doesn't flood the Hermes log (the UI hits /api/* every few seconds).
             # NB: 'msg' is a reserved LogRecord field — never put it in `extra`.
-            log.info("read_api.request", extra={"event": "request", "request_line": fmt % args})
+            log.debug("read_api.request", extra={"event": "request", "request_line": fmt % args})
 
     return _Handler
 

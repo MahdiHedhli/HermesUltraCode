@@ -191,7 +191,9 @@ def register(ctx) -> None:
             gate = _build_gate(store)
     except Exception as exc:  # noqa: BLE001
         config_error = (config_error + " " if config_error else "") + str(exc)
-        log.error("hermesultracode: gate not configured, entering FAIL-CLOSED mode: %s", exc)
+        # Fail-closed is a deliberate, safe degradation (it blocks dispatch), not a crash —
+        # WARNING, not ERROR, so an intentionally-unconfigured process isn't log-spam.
+        log.warning("hermesultracode: gate not configured, entering FAIL-CLOSED mode: %s", exc)
 
     hdg = HermesDispatchGate(gate=gate, config_error=config_error)
 
@@ -415,11 +417,11 @@ def _gate_status(hdg) -> str:
 
 
 def _hyperlink(url: str, label: str | None = None) -> str:
-    """Wrap a URL as an OSC 8 terminal hyperlink — clickable in modern terminals and
-    TUIs. The visible label defaults to the URL, so terminals without OSC 8 still show a
-    usable, copyable link. Disable with HERMESULTRACODE_HYPERLINKS=0 if your terminal
-    renders the escape literally."""
-    if os.environ.get("HERMESULTRACODE_HYPERLINKS", "1").lower() in ("0", "false", "no", "off"):
+    """Optionally wrap a URL as an OSC 8 terminal hyperlink. OPT-IN: many terminals and
+    the Hermes TUI do NOT support OSC 8 and render it as literal ``]8;;`` junk, so the
+    default is a plain, copyable URL. Set HERMESULTRACODE_HYPERLINKS=1 only if your
+    terminal supports OSC 8 hyperlinks."""
+    if os.environ.get("HERMESULTRACODE_HYPERLINKS", "0").lower() not in ("1", "true", "yes", "on"):
         return label or url
     esc = "\033"
     return f"{esc}]8;;{url}{esc}\\{label or url}{esc}]8;;{esc}\\"
@@ -481,8 +483,8 @@ def _fmt_table(headers, rows) -> str:
 
 def _uc_status(hdg, store_path: str) -> str:
     url, token = _ensure_dashboard(store_path)
-    dash = (f"📊 Dashboard: {_hyperlink(url)}" if url
-            else "📊 Dashboard: run `hermes ultracode-dashboard` (auto-start off or no free port)")
+    dash = (f"📊 Dashboard: {_hyperlink(url)}\n   (run `/ultracode dashboard` to open it in your browser)"
+            if url else "📊 Dashboard: run `hermes ultracode-dashboard` (auto-start off or no free port)")
     return (f"🛂 HermesUltraCode gate: {_gate_status(hdg)}\n{dash}\n"
             "Type `/ultracode help` for all commands.")
 
@@ -491,7 +493,18 @@ def _uc_dashboard(store_path: str) -> str:
     url, token = _ensure_dashboard(store_path)
     if not url:
         return "📊 Dashboard auto-start is off or no port is free. Run `hermes ultracode-dashboard`."
-    return f"📊 HermesUltraCode dashboard: {_hyperlink(url)}\n   token: {token}"
+    # The TUI's text output isn't clickable, so open the browser directly (the token is
+    # embedded in the URL, so the page connects itself). HERMESULTRACODE_OPEN_BROWSER=0 to skip.
+    opened = ""
+    if os.environ.get("HERMESULTRACODE_OPEN_BROWSER", "1").lower() not in ("0", "false", "no", "off"):
+        try:
+            import webbrowser
+
+            if webbrowser.open(url):
+                opened = "  ✓ opening in your browser…"
+        except Exception:  # noqa: BLE001
+            pass
+    return f"📊 HermesUltraCode dashboard{opened}\n   {url}\n   token: {token}"
 
 
 def _uc_agents() -> str:
