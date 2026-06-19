@@ -12,7 +12,8 @@ import tests.helpers  # noqa: F401 - puts repo root on sys.path
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _REVIEWER_ENV = ("HERMESULTRACODE_REVIEWER_API_KEY", "HERMESULTRACODE_REVIEWER_LAB",
                  "HERMESULTRACODE_REVIEWER_MODEL", "HERMESULTRACODE_REVIEWER_BASE_URL",
-                 "HERMESULTRACODE_ORCH_LAB", "HERMESULTRACODE_STORE")
+                 "HERMESULTRACODE_ORCH_LAB", "HERMESULTRACODE_STORE",
+                 "HERMESULTRACODE_AUTO_DASHBOARD")
 
 
 def load_plugin():
@@ -26,6 +27,9 @@ def load_plugin():
 class FakeCtx:
     def __init__(self):
         self.hooks, self.middleware, self.tools, self.skills, self.cli = {}, {}, {}, {}, {}
+        self.commands = {}
+        self.dispatch_calls = []
+        self.dispatch_result = '{"result": "subagent-done"}'
 
     def register_hook(self, name, cb):
         self.hooks.setdefault(name, []).append(cb)
@@ -42,6 +46,13 @@ class FakeCtx:
     def register_cli_command(self, name, help, setup_fn, handler_fn=None, description=""):
         self.cli[name] = {"help": help, "handler_fn": handler_fn}
 
+    def register_command(self, name, handler, description="", args_hint=""):
+        self.commands[name] = {"handler": handler, "args_hint": args_hint}
+
+    def dispatch_tool(self, tool_name, args, **kw):
+        self.dispatch_calls.append((tool_name, dict(args)))
+        return self.dispatch_result
+
 
 class PluginRegisterTest(unittest.TestCase):
     def setUp(self):
@@ -50,6 +61,7 @@ class PluginRegisterTest(unittest.TestCase):
         for k in _REVIEWER_ENV:
             os.environ.pop(k, None)
         os.environ["HERMESULTRACODE_STORE"] = os.path.join(self._tmp, "audit.sqlite3")
+        os.environ["HERMESULTRACODE_AUTO_DASHBOARD"] = "0"  # don't bind a port in tests
         self.plugin = load_plugin()
 
     def tearDown(self):
@@ -109,6 +121,45 @@ class PluginRegisterTest(unittest.TestCase):
         self.plugin.register(ctx)
         self.assertIn("neckbeard", ctx.skills)
         self.assertIn("ultracode-dashboard", ctx.cli)
+
+    def test_registers_ultracode_command_and_session_hook(self):
+        self._set_reviewer()
+        ctx = FakeCtx()
+        self.plugin.register(ctx)
+        self.assertIn("ultracode", ctx.commands)
+        self.assertEqual(ctx.commands["ultracode"]["args_hint"], "<task>")
+        self.assertIn("on_session_start", ctx.hooks)
+
+    def test_ultracode_status_shows_gate_and_usage(self):
+        self._set_reviewer()
+        ctx = FakeCtx()
+        self.plugin.register(ctx)
+        out = ctx.commands["ultracode"]["handler"]("")          # no args -> status
+        self.assertIn("HermesUltraCode gate", out)
+        self.assertIn("Usage", out)
+        self.assertEqual(ctx.dispatch_calls, [])                # status never delegates
+
+    def test_ultracode_failclosed_blocks_delegation(self):
+        ctx = FakeCtx()
+        self.plugin.register(ctx)                               # no reviewer -> fail-closed
+        out = ctx.commands["ultracode"]["handler"]("do the risky thing")
+        self.assertIn("did NOT release", out)
+        self.assertEqual(ctx.dispatch_calls, [])                # blocked -> never dispatched
+
+    def test_ultracode_active_delegates_via_dispatch_tool(self):
+        # Active path with a MOCK gate (no network): release -> dispatch_tool(delegate_task).
+        from adapters.hermes_hook import HermesDispatchGate
+        from tests.helpers import make_gate, verdict_json
+        hdg = HermesDispatchGate(gate=make_gate(reviewer_responses=[verdict_json("pass", ["Add tests."])]))
+        ctx = FakeCtx()
+        handler = self.plugin._make_ultracode_command(ctx, hdg, os.environ["HERMESULTRACODE_STORE"])
+        out = handler("implement a CSV exporter")
+        self.assertEqual(len(ctx.dispatch_calls), 1)
+        tool, args = ctx.dispatch_calls[0]
+        self.assertEqual(tool, "delegate_task")
+        self.assertTrue(args["goal"].startswith("implement a CSV exporter"))
+        self.assertIn("Add tests.", args["goal"])               # gate tightening reached delegate_task
+        self.assertIn("subagent-done", out)
 
     def test_same_lab_reviewer_falls_back_to_failclosed(self):
         # reviewer lab == orchestrator lab must NOT silently activate the gate

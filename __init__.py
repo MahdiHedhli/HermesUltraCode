@@ -231,6 +231,24 @@ def register(ctx) -> None:
     except Exception as exc:  # noqa: BLE001
         log.debug("hermesultracode: dashboard CLI not registered: %s", exc)
 
+    # /ultracode slash command — the explicit, reliable way to delegate through the gate.
+    try:
+        ctx.register_command(
+            "ultracode",
+            _make_ultracode_command(ctx, hdg, _default_store_path()),
+            description="Delegate a task to a subagent, reviewed by the HermesUltraCode gate. `/ultracode <task>`, or `/ultracode status` for the dashboard URL+token.",
+            args_hint="<task>",
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("hermesultracode: /ultracode command not registered: %s", exc)
+
+    # On session start: auto-start the dashboard and surface its URL + token (via the
+    # log pipeline — inject_message would start an agent turn, which we don't want).
+    try:
+        ctx.register_hook("on_session_start", _make_session_start(hdg, _default_store_path()))
+    except Exception as exc:  # noqa: BLE001
+        log.debug("hermesultracode: on_session_start not registered: %s", exc)
+
 
 def _register_dashboard_cli(ctx, store_path: str) -> None:
     def setup(subparser) -> None:
@@ -259,3 +277,154 @@ def _register_dashboard_cli(ctx, store_path: str) -> None:
         handler_fn=handler,
         description="Read-only gate observability dashboard.",
     )
+
+
+# ---------------------------------------------------------------------------
+# Auto-started dashboard (one daemon HTTP server per Hermes process)
+# ---------------------------------------------------------------------------
+
+# Process-wide state so the dashboard starts at most once, even across sessions.
+_DASH: dict = {"started": False, "url": None, "token": None, "port": None}
+import threading as _threading  # noqa: E402
+
+_DASH_LOCK = _threading.Lock()
+
+
+def _auto_dashboard_enabled() -> bool:
+    return os.environ.get("HERMESULTRACODE_AUTO_DASHBOARD", "1").lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
+def _ensure_dashboard(store_path: str):
+    """Start the read-only dashboard in a daemon thread, at most once per process.
+    Returns (url, token) — url has the token embedded for one-click open — or
+    (None, None) if disabled/failed. Safe to call repeatedly."""
+    with _DASH_LOCK:
+        if _DASH["started"]:
+            return _DASH["url"], _DASH["token"]
+        _DASH["started"] = True  # guard: don't retry-spam, even if start fails
+        if not _auto_dashboard_enabled():
+            return None, None
+        try:
+            _ensure_importable()
+            import secrets
+
+            from core.config import ReadApiConfig
+            from core.store_sqlite import SqliteAuditStore
+            from server.read_api import ReadApiContext, serve
+
+            host = os.environ.get("HERMESULTRACODE_DASHBOARD_HOST", "127.0.0.1")
+            base_port = int(os.environ.get("HERMESULTRACODE_DASHBOARD_PORT", "9120"))
+            token = secrets.token_urlsafe(24)
+            store = SqliteAuditStore(store_path)
+            httpd = bound = None
+            last_err = None
+            for port in range(base_port, base_port + 6):
+                cfg = ReadApiConfig(
+                    host=host, port=port, session_token=token,
+                    allowed_hosts=(f"{host}:{port}", f"localhost:{port}", f"127.0.0.1:{port}"),
+                )
+                ctx_obj = ReadApiContext(
+                    store=store, config=cfg,
+                    surfaced_config={"store": store_path, "host": host, "port": port},
+                )
+                try:
+                    httpd = serve(ctx_obj)
+                    bound = port
+                    break
+                except OSError as exc:  # port in use -> try the next one
+                    last_err = exc
+            if httpd is None:
+                log.warning("hermesultracode: dashboard could not bind %s:%d-%d (%s)",
+                            host, base_port, base_port + 5, last_err)
+                return None, None
+            _threading.Thread(
+                target=httpd.serve_forever, name="hermesultracode-dashboard", daemon=True
+            ).start()
+            url = f"http://{host}:{bound}/?token={token}"
+            _DASH.update(url=url, token=token, port=bound)
+            log.info("hermesultracode: dashboard on %s", url)
+            return url, token
+        except Exception as exc:  # noqa: BLE001
+            log.warning("hermesultracode: dashboard auto-start failed: %s", exc)
+            return None, None
+
+
+def _gate_status(hdg) -> str:
+    if getattr(hdg, "gate", None) is not None:
+        return "ACTIVE — reviewing every delegate_task"
+    return "FAIL-CLOSED (blocking all delegate_task) — " + (
+        getattr(hdg, "config_error", "") or "reviewer not configured"
+    )
+
+
+# ---------------------------------------------------------------------------
+# /ultracode slash command + on_session_start banner
+# ---------------------------------------------------------------------------
+
+
+def _make_ultracode_command(ctx, hdg, store_path: str):
+    """`/ultracode <task>` -> gate-review then dispatch delegate_task; `/ultracode` ->
+    status + dashboard URL/token. The return string is shown to the user (it does not
+    feed the agent), so we do the delegation directly via ctx.dispatch_tool."""
+
+    def handler(raw_args: str):
+        text = (raw_args or "").strip()
+        if not text or text.lower() in ("status", "dashboard", "help", "?", "-h", "--help"):
+            url, token = _ensure_dashboard(store_path)
+            dash = (f"📊 Dashboard: {url}" if url
+                    else "📊 Dashboard: run `hermes ultracode-dashboard` (auto-start off or port busy)")
+            return (
+                f"🛂 HermesUltraCode gate: {_gate_status(hdg)}\n"
+                f"{dash}\n\n"
+                "Usage:\n"
+                "  /ultracode <task>   delegate <task> to a subagent — reviewed (tightened or blocked) by the gate\n"
+                "  /ultracode status   this view"
+            )
+
+        from adapters.hermes_hook import GateBlocked
+
+        args = {"goal": text, "context": ""}
+        try:
+            tightened = hdg.assert_release(dict(args))  # runs the gate (review/tighten/block)
+        except GateBlocked as exc:
+            r = exc.result
+            return (
+                f"🛑 HermesUltraCode did NOT release this delegation "
+                f"(decision={r.decision}, tier={r.tier}).\n"
+                f"Reason: {r.fail_closed_reason or r.rationale or 'blocked'}"
+            )
+
+        changed = tightened.strip() != text
+        args["goal"] = tightened
+        try:
+            result = ctx.dispatch_tool("delegate_task", args)
+        except Exception as exc:  # noqa: BLE001
+            return (f"⚠️ Gate released the goal ({'tightened' if changed else 'unchanged'}), "
+                    f"but delegate_task failed: {exc}")
+        verb = "TIGHTENED the goal and released it" if changed else "passed the goal unchanged"
+        return f"✓ HermesUltraCode reviewed and {verb}; ran the subagent.\n\n{result}"
+
+    return handler
+
+
+def _make_session_start(hdg, store_path: str):
+    """Surface the gate status + dashboard URL/token when a session starts. Logs (does
+    NOT inject a message — that would start an agent turn)."""
+
+    def on_session_start(**kwargs):
+        try:
+            url, _ = _ensure_dashboard(store_path)
+            status = "ACTIVE" if getattr(hdg, "gate", None) is not None else "FAIL-CLOSED (blocking delegate_task)"
+            if url:
+                log.info("🛂 HermesUltraCode gate %s · dashboard %s · `/ultracode <task>` to delegate",
+                         status, url)
+            else:
+                log.info("🛂 HermesUltraCode gate %s · `/ultracode` for status · `hermes ultracode-dashboard` for the UI",
+                         status)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("hermesultracode on_session_start: %s", exc)
+        return None
+
+    return on_session_start

@@ -238,6 +238,19 @@ and **always** installs the `pre_tool_call` hook: if the reviewer can't be confi
 its lab matches the orchestrator's), the hook blocks every `delegate_task` rather than let
 a worker run un-vetted (invariant 1).
 
+### Driving it: `/ultracode` + on-load dashboard
+
+Hermes only delegates *autonomously*, so the plugin adds an explicit, reliable trigger and
+surfaces the dashboard on every session start:
+
+- **`/ultracode <task>`** — gate-reviews the task, then (if released) runs `delegate_task`
+  for you. Tightened goals reach the subagent; a blocked task returns the gate's reason and
+  never dispatches. `/ultracode status` prints the gate state + dashboard URL/token.
+- **On session start** the plugin auto-starts the read-only dashboard (daemon thread,
+  ephemeral token, loopback) and logs a one-click `http://127.0.0.1:9120/?token=…` URL —
+  the page reads `?token=` and connects itself. Disable with `HERMESULTRACODE_AUTO_DASHBOARD=0`;
+  change the port with `HERMESULTRACODE_DASHBOARD_PORT`.
+
 The neckbeard ruleset is independently publishable as a skill:
 
 ```bash

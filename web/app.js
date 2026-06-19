@@ -177,6 +177,11 @@
   document.addEventListener("DOMContentLoaded", () => {
     $("#save-token").onclick = () => { TOKEN = $("#token").value.trim(); refresh(); };
     $("#token").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#save-token").click(); });
+    // One-click open: ?token=... in the URL (printed on load / by /ultracode) auto-connects.
+    try {
+      const urlToken = new URLSearchParams(location.search).get("token");
+      if (urlToken) { $("#token").value = urlToken; TOKEN = urlToken.trim(); refresh(); }
+    } catch (e) { /* no-op */ }
     $$(".tab").forEach((t) => t.onclick = () => showView(t.dataset.view));
     $("#audit-filters").onsubmit = (e) => { e.preventDefault(); loadAudit(); };
     $("#gate-panel-close").onclick = () => $("#gate-panel").close();
