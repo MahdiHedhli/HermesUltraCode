@@ -77,6 +77,15 @@ class GateEndToEndTest(unittest.TestCase):
         self.assertIn("neutral", REVIEWER_SYSTEM_PROMPT.lower())
         self.assertIn("maximise", REVIEWER_SYSTEM_PROMPT.lower())
 
+    def test_reviewer_prompt_forbids_scope_relevance_blocking(self):
+        # Regression: the reviewer must NOT block legitimate tasks for being "out of
+        # scope"/unrelated/imagined-compliance. It must default to pass.
+        p = REVIEWER_SYSTEM_PROMPT.lower()
+        self.assertIn("default to pass", p)
+        self.assertIn("do not know the project", p)
+        self.assertIn("never a reason to object or block", p)
+        self.assertIn("when in doubt, pass", p)
+
     def test_review_prompt_fences_base_as_untrusted_data(self):
         # Invariant 8: the base is presented as untrusted data, not executed.
         prompt = build_review_prompt(BASE, (), 1, "standard", standard_meta())
