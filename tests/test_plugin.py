@@ -146,6 +146,17 @@ class PluginRegisterTest(unittest.TestCase):
         self.assertIn("did NOT release", out)
         self.assertEqual(ctx.dispatch_calls, [])                # blocked -> never dispatched
 
+    def test_hyperlink_osc8_and_toggle(self):
+        h = self.plugin._hyperlink
+        on = h("http://127.0.0.1:9120/?token=abc")
+        self.assertIn("\033]8;;http://127.0.0.1:9120/?token=abc", on)  # OSC 8 link emitted
+        self.assertIn("http://127.0.0.1:9120/?token=abc", on)          # visible/copyable label
+        os.environ["HERMESULTRACODE_HYPERLINKS"] = "0"
+        try:
+            self.assertEqual(h("http://x/y"), "http://x/y")            # plain when disabled
+        finally:
+            os.environ.pop("HERMESULTRACODE_HYPERLINKS", None)
+
     def test_ultracode_active_delegates_via_dispatch_tool(self):
         # Active path with a MOCK gate (no network): release -> dispatch_tool(delegate_task).
         from adapters.hermes_hook import HermesDispatchGate

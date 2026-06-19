@@ -359,6 +359,17 @@ def _gate_status(hdg) -> str:
     )
 
 
+def _hyperlink(url: str, label: str | None = None) -> str:
+    """Wrap a URL as an OSC 8 terminal hyperlink — clickable in modern terminals and
+    TUIs. The visible label defaults to the URL, so terminals without OSC 8 still show a
+    usable, copyable link. Disable with HERMESULTRACODE_HYPERLINKS=0 if your terminal
+    renders the escape literally."""
+    if os.environ.get("HERMESULTRACODE_HYPERLINKS", "1").lower() in ("0", "false", "no", "off"):
+        return label or url
+    esc = "\033"
+    return f"{esc}]8;;{url}{esc}\\{label or url}{esc}]8;;{esc}\\"
+
+
 # ---------------------------------------------------------------------------
 # /ultracode slash command + on_session_start banner
 # ---------------------------------------------------------------------------
@@ -373,7 +384,7 @@ def _make_ultracode_command(ctx, hdg, store_path: str):
         text = (raw_args or "").strip()
         if not text or text.lower() in ("status", "dashboard", "help", "?", "-h", "--help"):
             url, token = _ensure_dashboard(store_path)
-            dash = (f"📊 Dashboard: {url}" if url
+            dash = (f"📊 Dashboard: {_hyperlink(url)}" if url
                     else "📊 Dashboard: run `hermes ultracode-dashboard` (auto-start off or port busy)")
             return (
                 f"🛂 HermesUltraCode gate: {_gate_status(hdg)}\n"

@@ -158,25 +158,52 @@ dispatched_prompt = base_prompt (verbatim) + rendered(added_directives)
 
 ## Quick start
 
+**In Hermes (most users)** — install, point the reviewer at a *different lab*, then drive
+it with the `/ultracode` slash command:
+
 ```bash
-# 1. Run the full test suite (offline, stdlib unittest — no pip install needed)
-python -m unittest discover -s tests
+hermes plugins install MahdiHedhli/HermesUltraCode
 
-#    or with pytest:  pip install -e ".[dev]" && pytest
+# configure the reviewer in ~/.hermes/.env (a DIFFERENT lab than your orchestrator).
+# example: route the reviewer through Hermes's own xAI proxy (keyless):
+cat >> ~/.hermes/.env <<'ENV'
+HERMESULTRACODE_REVIEWER_BASE_URL=http://127.0.0.1:8649/v1/chat/completions
+HERMESULTRACODE_REVIEWER_LAB=xai
+HERMESULTRACODE_REVIEWER_MODEL=grok-4.3
+HERMESULTRACODE_ORCH_LAB=openai          # your orchestrator's lab — must differ from REVIEWER_LAB
+ENV
+hermes proxy start --provider xai --host 127.0.0.1 --port 8649   # keep running (reviewer's route)
 
-# 2. Run the gate-on vs gate-off benchmark on the example corpus
+hermes plugins enable hermesultracode
+hermes gateway restart                   # or just start a fresh `hermes` session
+```
+
+Then, inside a Hermes session:
+
+```text
+/ultracode <task>     # delegate <task> to a subagent — gate-reviewed (tightened, or blocked)
+/ultracode status     # gate state + a clickable dashboard link (auto-starts on loopback)
+```
+
+The dashboard also auto-starts on session load and surfaces a one-click
+`http://127.0.0.1:9120/?token=…` link (the page reads `?token=` and connects itself).
+Update later with `hermes plugins update hermesultracode` + a restart.
+
+**Local / standalone (dev)** — no Hermes needed, provider mocked:
+
+```bash
+# full test suite (offline, stdlib unittest — no pip install needed)
+python -m unittest discover -s tests        # or: pip install -e ".[dev]" && pytest
+
+# gate-on vs gate-off benchmark
 python -m bench.harness --out bench_results.json
 
-# 3. Launch the read-only dashboard (loopback + ephemeral session token)
+# read-only dashboard (loopback + ephemeral token); paste the printed token
 python -m server --store gate_audit.sqlite3 --bench bench_results.json
-#    open the printed URL, paste the printed token into the dashboard
 
-# 4. (optional) read-only MCP server for the Hermes agent
+# (optional) read-only MCP server, and a live smoke test via the Hermes proxy
 python -m server.mcp_server --store gate_audit.sqlite3
-
-# 5. Live smoke test against a real model via the installed Hermes proxy
-hermes proxy start --provider xai --host 127.0.0.1 --port 8649   # in another shell
-python -m bench.smoke_hermes      # routes the reviewer through xAI (a different lab)
+python -m bench.smoke_hermes
 ```
 
 ### Live smoke test (`bench/smoke_hermes.py`)
