@@ -433,12 +433,16 @@ def _hyperlink(url: str, label: str | None = None) -> str:
 
 
 _UC_HELP = """\
+The gate reviews EVERY delegate_task automatically — in the TUI, just send a task as a
+normal message and the gate applies (tightens or blocks the delegation). No command needed.
 Commands:
-  /ultracode <task>      delegate <task> to a subagent — gate-reviewed (tightened, or blocked)
-  /ultracode status      gate state + clickable dashboard link
+  /ultracode <task>      gate-review <task> and run it. Runs the subagent in the CLI; in the
+                         TUI a slash command can't spawn one, so it previews + hands you the
+                         approved goal to send as a message.
+  /ultracode status      gate state + dashboard link
   /ultracode agents      active subagents + recently completed (what's running, where it is)
   /ultracode verdicts    recent gate verdicts (tier · verdict · decision)
-  /ultracode dashboard   the dashboard URL + session token
+  /ultracode dashboard   open the dashboard in your browser
   /ultracode help        this help"""
 
 
@@ -568,14 +572,29 @@ def _uc_delegate(ctx, hdg, text: str) -> str:
                 f"(decision={r.decision}, tier={r.tier}).\n"
                 f"Reason: {r.fail_closed_reason or r.rationale or 'blocked'}")
     changed = tightened.strip() != text
+    note = "TIGHTENED the goal" if changed else "passed the goal unchanged"
     args["goal"] = tightened
     try:
         result = ctx.dispatch_tool("delegate_task", args)
     except Exception as exc:  # noqa: BLE001
-        return (f"⚠️ Gate released the goal ({'tightened' if changed else 'unchanged'}), "
-                f"but delegate_task failed: {exc}")
-    verb = "TIGHTENED the goal and released it" if changed else "passed the goal unchanged"
-    return f"✓ HermesUltraCode reviewed and {verb}; ran the subagent.\n\n{result}"
+        result = f'{{"error": "{exc}"}}'
+
+    # In the TUI a slash command runs in a worker subprocess with NO agent context, so
+    # delegate_task returns "requires a parent agent context." That isn't a gate failure —
+    # the gate already reviewed and approved. Degrade to guidance (+ the approved goal)
+    # instead of dumping the raw error, and point at the flow that DOES work in the TUI:
+    # send the task as a normal message — the gate reviews every delegation automatically.
+    if isinstance(result, str) and "parent agent context" in result:
+        return (
+            f"✓ HermesUltraCode reviewed and {note} — the gate APPROVED this task.\n\n"
+            "⚠️ A slash command can't spawn a subagent in the TUI (it runs in a worker with "
+            "no agent context). Just send the task as a normal message and I'll delegate it — "
+            "the gate reviews every delegate_task automatically. Approved goal:\n\n"
+            f"{tightened}"
+        )
+    if isinstance(result, str) and result.lstrip().startswith('{"error"'):
+        return f"⚠️ Gate released the goal ({note}), but delegate_task failed:\n{result}"
+    return f"✓ HermesUltraCode reviewed and {note} and released it; ran the subagent.\n\n{result}"
 
 
 def _make_session_start(hdg, store_path: str):

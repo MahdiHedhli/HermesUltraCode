@@ -198,6 +198,21 @@ class PluginRegisterTest(unittest.TestCase):
         self.assertIn("Add tests.", args["goal"])               # gate tightening reached delegate_task
         self.assertIn("subagent-done", out)
 
+    def test_ultracode_task_degrades_gracefully_without_parent_agent(self):
+        # In the TUI, dispatch_tool returns "requires a parent agent context" — the gate
+        # already approved, so we guide the user instead of dumping the raw error.
+        from adapters.hermes_hook import HermesDispatchGate
+        from tests.helpers import make_gate, verdict_json
+        hdg = HermesDispatchGate(gate=make_gate(reviewer_responses=[verdict_json("pass")]))
+        ctx = FakeCtx()
+        ctx.dispatch_result = '{"error": "delegate_task requires a parent agent context."}'
+        handler = self.plugin._make_ultracode_command(ctx, hdg, os.environ["HERMESULTRACODE_STORE"])
+        out = handler("build a chess game")
+        self.assertIn("APPROVED", out)                          # gate approved, not "failed"
+        self.assertIn("normal message", out)                    # steer to the flow that works
+        self.assertIn("build a chess game", out)                # the approved goal is handed back
+        self.assertNotIn("ran the subagent", out)               # didn't pretend it ran
+
     def test_same_lab_reviewer_falls_back_to_failclosed(self):
         # reviewer lab == orchestrator lab must NOT silently activate the gate
         os.environ["HERMESULTRACODE_REVIEWER_API_KEY"] = "sk-or-fake0123456789ABCDEF"

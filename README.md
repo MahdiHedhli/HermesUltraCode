@@ -267,16 +267,25 @@ a worker run un-vetted (invariant 1).
 
 ### Driving it: `/ultracode` + on-load dashboard
 
-Hermes only delegates *autonomously*, so the plugin adds an explicit, reliable trigger and
-surfaces the dashboard on every session start:
+**The gate is automatic.** The `pre_tool_call` + `tool_request` hooks fire in the *agent*
+process on every `delegate_task`, in any UI — so the primary flow is just: **give the agent
+a task as a normal message**, and the gate tightens or blocks the delegation. You don't need
+a command for the gate to work.
 
-- **`/ultracode <task>`** — gate-reviews the task, then (if released) runs `delegate_task`
-  for you. Tightened goals reach the subagent; a blocked task returns the gate's reason and
-  never dispatches. Sub-views (rendered as text, so they work inside the TUI):
-  `/ultracode help` (all commands), `status` (gate + dashboard link), `agents` (active
-  subagents + recent output), `verdicts` (recent gate decisions). The command is reachable
-  by typing it and is listed in `/commands`; note the TUI's `/` quick-menu and `/help` are
-  built-in surfaces that don't enumerate plugin commands (we don't fork the TUI).
+`/ultracode` adds an explicit trigger + text views, and the dashboard surfaces on every
+session start:
+
+- **`/ultracode <task>`** — gate-reviews the task and runs it. In the **CLI** it dispatches
+  `delegate_task` for you (tightened goal reaches the subagent; a blocked task returns the
+  gate's reason). In the **TUI** a slash command runs in a worker subprocess with no agent
+  context, so it *can't* spawn a subagent — it previews the gate's decision and hands you the
+  approved goal to send as a message (where the gate applies automatically). Blocked tasks are
+  reported, never dispatched.
+- **Text views (work in the TUI, since they're just printed):** `/ultracode help` (all
+  commands), `status` (gate + dashboard link), `agents` (active subagents + recent output),
+  `verdicts` (recent gate decisions), `dashboard` (opens the browser). The command is reachable
+  by typing it and is listed in `/commands`; the TUI's `/` quick-menu and `/help` are built-in
+  surfaces that don't enumerate plugin commands (we don't fork the TUI).
 - **On session start** the plugin auto-starts the read-only dashboard (daemon thread,
   ephemeral token, loopback) and logs a one-click `http://127.0.0.1:9120/?token=…` URL —
   the page reads `?token=` and connects itself. Disable with `HERMESULTRACODE_AUTO_DASHBOARD=0`;
