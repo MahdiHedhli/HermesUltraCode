@@ -256,7 +256,7 @@ Hermes's own `PluginManager`/`PluginContext`:
 | **Tighten** | `tool_request` middleware on `delegate_task` (runs first; rewrites args) | rewrites the subagent's `goal` → base verbatim + appended directives |
 | **Block** | `pre_tool_call` hook on `delegate_task` (returns `{"action":"block"}`) | refuses a dispatch the gate didn't release; **fail-closed if unconfigured** |
 | **Observe** | `register_tool` (`gate_metrics`, `gate_audit_query`, `gate_recent_verdicts`) | the Hermes agent can answer "show me today's gate verdicts" |
-| **Plan** | `register_command('ultracode', …)` — planning is the default; `yolo` bypasses | scoping pass (questions + target dir) before a build; `register_skill('scope-first', …)` makes the agent plan-first |
+| **Plan** | `register_command('ultracode', …)` — planning is the default; `yolo` bypasses | scoping pass (questions + target dir) before a build; the `scope-first` skill (discoverable via `skills.external_dirs`, see below) makes the agent ask via `clarify` |
 | **Directory** | `Gate.workspace_directive` seeded into every file-writing review | tightens each build to *declare and stay within a target directory* (off via `HERMESULTRACODE_DIRECTORY_DIRECTIVE=0`) |
 | **Neckbeard** | `register_skill('neckbeard', …)` + `skills/neckbeard/SKILL.md` | the minimalism ruleset as an installable skill |
 | **Dashboard** | `register_cli_command('ultracode-dashboard', …)` | `hermes ultracode-dashboard` launches the read API |
@@ -305,7 +305,23 @@ session start:
   the page reads `?token=` and connects itself. Disable with `HERMESULTRACODE_AUTO_DASHBOARD=0`;
   change the port with `HERMESULTRACODE_DASHBOARD_PORT`.
 
-The neckbeard ruleset is independently publishable as a skill:
+#### Making the skills discoverable (important)
+
+A plugin's `register_skill` only makes a skill loadable by *qualified* name
+(`hermesultracode:scope-first`) — Hermes does **not** list plugin skills in the agent's
+skills index, so the orchestrator never sees them ([plugins.py](https://github.com/MahdiHedhli/HermesUltraCode):
+“plugin skills are opt-in explicit loads only”). For the agent to discover `scope-first`
+(and use `clarify` on a build) or `neckbeard`, point Hermes at the plugin's skills dir via
+**`skills.external_dirs`** in `~/.hermes/config.yaml`:
+
+```yaml
+skills:
+  external_dirs: ['/Users/<you>/.hermes/plugins/hermesultracode/skills']
+```
+
+This adds the skills to the index (and as `/scope-first` / `/neckbeard` commands) without
+touching the curated `~/.hermes/skills/` tree. Restart Hermes to pick it up. Alternatively,
+install a skill into the curated tree directly:
 
 ```bash
 hermes skills install MahdiHedhli/HermesUltraCode/skills/neckbeard   # or:
