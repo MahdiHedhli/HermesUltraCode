@@ -277,6 +277,15 @@ path), and SQLite for the audit store (no new dependency).
 
 ## Dashboard views (`web/`, served by `server/read_api.py`)
 
+> **Launch it with `hermes ultracode-dashboard`** (or `python -m server`) — **not**
+> `hermes dashboard`. That bare command is *Hermes's own* React UI (default port 9119),
+> which needs `cd web && npm run build`; pointing it at 9120 gives
+> `{"error":"Frontend not built…"}`. UltraCode's dashboard is **server-rendered static
+> HTML — no build step**. It defaults to `http://127.0.0.1:9120`, prints a session token to
+> paste in, and is read-only over the audit store — so it's **empty until the gate records
+> dispatches** (configure a reviewer, then run a `delegate_task`). If 9120 is taken, use
+> `hermes ultracode-dashboard --port 9123`.
+
 - **Live** — orchestrator + active worker subagents, backend, status, current dispatch.
 - **Queue** — pending dispatches with blast-radius tier badges.
 - **Gate panel** (per dispatch) — verdict, round count, the appended directives (the
