@@ -187,7 +187,10 @@ def _meta_from(toolsets, context: str) -> DispatchMeta:
         carries_merge_authority=carries_merge,
         # a synthetic protected path makes the deterministic tiering classify elevated
         touched_paths=("infra/subagent",) if (elevated and not carries_merge) else (),
-        file_count=(0 if read_only else None),
+        # Touched paths are unknown until the subagent runs, so a write-capable dispatch
+        # must default to STANDARD (reviewed), NOT trivial. A read-only subagent is the
+        # only thing we trivial-skip. (file_count 2 => standard; 0 + read_only => trivial.)
+        file_count=(0 if read_only else 2),
         read_only=read_only,
         description=context[:500],
     )

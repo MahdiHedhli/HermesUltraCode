@@ -14,6 +14,13 @@ from adapters.hermes_hook import (
     _meta_from,
 )
 from core.providers import MockProvider, ProviderError
+from core.tiering import (
+    TIER_ELEVATED,
+    TIER_MERGE_ADJACENT,
+    TIER_STANDARD,
+    TIER_TRIVIAL,
+    classify,
+)
 
 DELEGATE_ARGS = {"goal": "Refactor the CSV exporter.", "context": "module export/csv.py",
                  "toolsets": ["files", "terminal"]}
@@ -98,23 +105,29 @@ class AdapterFailClosedTest(unittest.TestCase):
 
 
 class AdapterMetaTest(unittest.TestCase):
+    # Assert the resulting TIER, not just the meta fields — a write-capable delegate
+    # with unknown file paths must be reviewed (standard), never trivial-skipped.
     def test_readonly_toolsets_are_trivial(self):
         m = _meta_from(["search", "read"], "")
         self.assertTrue(m.read_only)
+        self.assertEqual(classify(m), TIER_TRIVIAL)
 
     def test_merge_toolsets_carry_merge_authority(self):
         m = _meta_from(["files", "deploy"], "")
         self.assertTrue(m.carries_merge_authority)
+        self.assertEqual(classify(m), TIER_MERGE_ADJACENT)
 
     def test_elevated_toolsets_get_protected_path(self):
         m = _meta_from(["git", "terminal"], "")
-        self.assertTrue(m.touched_paths)  # synthetic protected path -> elevated tier
+        self.assertEqual(classify(m), TIER_ELEVATED)
 
-    def test_plain_toolsets_are_standard(self):
-        m = _meta_from(["files"], "")
-        self.assertFalse(m.read_only)
-        self.assertFalse(m.carries_merge_authority)
-        self.assertEqual(m.touched_paths, ())
+    def test_plain_write_toolsets_are_standard_not_trivial(self):
+        # regression: ["files"] (no explicit paths) must be REVIEWED, not skipped
+        self.assertEqual(classify(_meta_from(["files"], "")), TIER_STANDARD)
+
+    def test_unknown_toolsets_default_to_standard(self):
+        self.assertEqual(classify(_meta_from([], "")), TIER_STANDARD)
+        self.assertEqual(classify(_meta_from(["whatever"], "")), TIER_STANDARD)
 
 
 if __name__ == "__main__":
