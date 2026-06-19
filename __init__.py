@@ -430,49 +430,139 @@ def _hyperlink(url: str, label: str | None = None) -> str:
 # ---------------------------------------------------------------------------
 
 
+_UC_HELP = """\
+Commands:
+  /ultracode <task>      delegate <task> to a subagent — gate-reviewed (tightened, or blocked)
+  /ultracode status      gate state + clickable dashboard link
+  /ultracode agents      active subagents + recently completed (what's running, where it is)
+  /ultracode verdicts    recent gate verdicts (tier · verdict · decision)
+  /ultracode dashboard   the dashboard URL + session token
+  /ultracode help        this help"""
+
+
 def _make_ultracode_command(ctx, hdg, store_path: str):
-    """`/ultracode <task>` -> gate-review then dispatch delegate_task; `/ultracode` ->
-    status + dashboard URL/token. The return string is shown to the user (it does not
-    feed the agent), so we do the delegation directly via ctx.dispatch_tool."""
+    """`/ultracode` dispatches sub-views (help/status/agents/verdicts/dashboard) or, for
+    anything else, treats the args as a task and delegates it through the gate. The return
+    string is printed to the user (it does not feed the agent), so views are rendered as
+    text tables and delegation is done directly via ctx.dispatch_tool — which is also how a
+    plugin shows tasks/subagents inside the TUI (there is no plugin TUI-panel API)."""
 
     def handler(raw_args: str):
-        text = (raw_args or "").strip()
-        if not text or text.lower() in ("status", "dashboard", "help", "?", "-h", "--help"):
-            url, token = _ensure_dashboard(store_path)
-            dash = (f"📊 Dashboard: {_hyperlink(url)}" if url
-                    else "📊 Dashboard: run `hermes ultracode-dashboard` (auto-start off or port busy)")
-            return (
-                f"🛂 HermesUltraCode gate: {_gate_status(hdg)}\n"
-                f"{dash}\n\n"
-                "Usage:\n"
-                "  /ultracode <task>   delegate <task> to a subagent — reviewed (tightened or blocked) by the gate\n"
-                "  /ultracode status   this view"
-            )
-
-        from adapters.hermes_hook import GateBlocked
-
-        args = {"goal": text, "context": ""}
-        try:
-            tightened = hdg.assert_release(dict(args))  # runs the gate (review/tighten/block)
-        except GateBlocked as exc:
-            r = exc.result
-            return (
-                f"🛑 HermesUltraCode did NOT release this delegation "
-                f"(decision={r.decision}, tier={r.tier}).\n"
-                f"Reason: {r.fail_closed_reason or r.rationale or 'blocked'}"
-            )
-
-        changed = tightened.strip() != text
-        args["goal"] = tightened
-        try:
-            result = ctx.dispatch_tool("delegate_task", args)
-        except Exception as exc:  # noqa: BLE001
-            return (f"⚠️ Gate released the goal ({'tightened' if changed else 'unchanged'}), "
-                    f"but delegate_task failed: {exc}")
-        verb = "TIGHTENED the goal and released it" if changed else "passed the goal unchanged"
-        return f"✓ HermesUltraCode reviewed and {verb}; ran the subagent.\n\n{result}"
+        low = (raw_args or "").strip().lower()
+        if low in ("", "help", "?", "-h", "--help"):
+            return f"🛂 HermesUltraCode gate: {_gate_status(hdg)}\n\n{_UC_HELP}"
+        if low == "status":
+            return _uc_status(hdg, store_path)
+        if low in ("dashboard", "ui", "open"):
+            return _uc_dashboard(store_path)
+        if low in ("agents", "subagents", "tasks", "sub"):
+            return _uc_agents()
+        if low in ("verdicts", "log", "audit", "gate", "history"):
+            return _uc_verdicts(store_path)
+        return _uc_delegate(ctx, hdg, (raw_args or "").strip())
 
     return handler
+
+
+def _short(s, n: int) -> str:
+    s = " ".join(str(s or "").split())
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def _fmt_table(headers, rows) -> str:
+    cols = len(headers)
+    w = [len(h) for h in headers]
+    for r in rows:
+        for i in range(cols):
+            w[i] = max(w[i], len(str(r[i])))
+    line = lambda c: "  " + "  ".join(str(c[i]).ljust(w[i]) for i in range(cols))
+    return "\n".join([line(headers), line(["-" * x for x in w])] + [line(r) for r in rows])
+
+
+def _uc_status(hdg, store_path: str) -> str:
+    url, token = _ensure_dashboard(store_path)
+    dash = (f"📊 Dashboard: {_hyperlink(url)}" if url
+            else "📊 Dashboard: run `hermes ultracode-dashboard` (auto-start off or no free port)")
+    return (f"🛂 HermesUltraCode gate: {_gate_status(hdg)}\n{dash}\n"
+            "Type `/ultracode help` for all commands.")
+
+
+def _uc_dashboard(store_path: str) -> str:
+    url, token = _ensure_dashboard(store_path)
+    if not url:
+        return "📊 Dashboard auto-start is off or no port is free. Run `hermes ultracode-dashboard`."
+    return f"📊 HermesUltraCode dashboard: {_hyperlink(url)}\n   token: {token}"
+
+
+def _uc_agents() -> str:
+    from core.redact import redact
+    from server.progress import PROGRESS
+
+    snap = PROGRESS.snapshot()
+    active = list(snap["active"])
+    try:
+        from tools.delegate_tool import list_active_subagents  # type: ignore
+
+        reg = list_active_subagents()
+        if reg:
+            active = [{"goal": r.get("goal", ""), "status": r.get("status", "running"),
+                       "last_tool": r.get("last_tool", ""), "tool_count": r.get("tool_count", 0),
+                       "elapsed_s": None} for r in reg]
+    except Exception:  # noqa: BLE001
+        pass
+
+    out = []
+    if active:
+        out.append("Active subagents:")
+        out.append(_fmt_table(
+            ["GOAL", "STATUS", "LAST TOOL", "TOOLS", "ELAPSED"],
+            [[_short(redact(a.get("goal")), 40), a.get("status", ""), a.get("last_tool", "") or "—",
+              str(a.get("tool_count", 0)),
+              (f"{a['elapsed_s']}s" if a.get("elapsed_s") is not None else "—")] for a in active]))
+    else:
+        out.append("No active subagents. Start one with `/ultracode <task>`.")
+    if snap["completed"]:
+        out.append("\nRecently completed:")
+        out.append(_fmt_table(
+            ["GOAL", "STATUS", "TOOLS", "SUMMARY"],
+            [[_short(redact(c.get("goal")), 32), c.get("status", ""), str(c.get("tool_count", 0)),
+              _short(redact(c.get("summary")), 48)] for c in snap["completed"][:8]]))
+    return "\n".join(out)
+
+
+def _uc_verdicts(store_path: str) -> str:
+    _ensure_importable()
+    from core.store_sqlite import SqliteAuditStore
+
+    rows = SqliteAuditStore(store_path).all()[-12:][::-1]  # newest first
+    if not rows:
+        return "No gate verdicts yet — delegate a task to populate the trail."
+    return "Recent gate verdicts (newest first):\n" + _fmt_table(
+        ["TIME", "TIER", "VERDICT", "DECISION", "GOAL"],
+        [[(r.ts[11:19] if len(r.ts) >= 19 else r.ts), r.tier, r.verdict, r.decision,
+          _short(r.base_prompt, 38)] for r in rows])  # base_prompt is already redacted on write
+
+
+def _uc_delegate(ctx, hdg, text: str) -> str:
+    from adapters.hermes_hook import GateBlocked
+
+    args = {"goal": text, "context": ""}
+    try:
+        tightened = hdg.assert_release(dict(args))  # runs the gate (review/tighten/block)
+    except GateBlocked as exc:
+        r = exc.result
+        return (f"🛑 HermesUltraCode did NOT release this delegation "
+                f"(decision={r.decision}, tier={r.tier}).\n"
+                f"Reason: {r.fail_closed_reason or r.rationale or 'blocked'}")
+    changed = tightened.strip() != text
+    args["goal"] = tightened
+    try:
+        result = ctx.dispatch_tool("delegate_task", args)
+    except Exception as exc:  # noqa: BLE001
+        return (f"⚠️ Gate released the goal ({'tightened' if changed else 'unchanged'}), "
+                f"but delegate_task failed: {exc}")
+    verb = "TIGHTENED the goal and released it" if changed else "passed the goal unchanged"
+    return f"✓ HermesUltraCode reviewed and {verb}; ran the subagent.\n\n{result}"
 
 
 def _make_session_start(hdg, store_path: str):

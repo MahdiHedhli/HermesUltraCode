@@ -272,7 +272,11 @@ surfaces the dashboard on every session start:
 
 - **`/ultracode <task>`** — gate-reviews the task, then (if released) runs `delegate_task`
   for you. Tightened goals reach the subagent; a blocked task returns the gate's reason and
-  never dispatches. `/ultracode status` prints the gate state + dashboard URL/token.
+  never dispatches. Sub-views (rendered as text, so they work inside the TUI):
+  `/ultracode help` (all commands), `status` (gate + dashboard link), `agents` (active
+  subagents + recent output), `verdicts` (recent gate decisions). The command is reachable
+  by typing it and is listed in `/commands`; note the TUI's `/` quick-menu and `/help` are
+  built-in surfaces that don't enumerate plugin commands (we don't fork the TUI).
 - **On session start** the plugin auto-starts the read-only dashboard (daemon thread,
   ephemeral token, loopback) and logs a one-click `http://127.0.0.1:9120/?token=…` URL —
   the page reads `?token=` and connects itself. Disable with `HERMESULTRACODE_AUTO_DASHBOARD=0`;

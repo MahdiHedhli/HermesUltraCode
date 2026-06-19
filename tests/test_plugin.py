@@ -149,14 +149,21 @@ class PluginRegisterTest(unittest.TestCase):
         finally:
             PROGRESS.clear()
 
-    def test_ultracode_status_shows_gate_and_usage(self):
+    def test_ultracode_help_status_and_views(self):
         self._set_reviewer()
         ctx = FakeCtx()
         self.plugin.register(ctx)
-        out = ctx.commands["ultracode"]["handler"]("")          # no args -> status
-        self.assertIn("HermesUltraCode gate", out)
-        self.assertIn("Usage", out)
-        self.assertEqual(ctx.dispatch_calls, [])                # status never delegates
+        h = ctx.commands["ultracode"]["handler"]
+        # bare -> help listing all subcommands
+        help_out = h("")
+        self.assertIn("HermesUltraCode gate", help_out)
+        self.assertIn("/ultracode <task>", help_out)
+        self.assertIn("/ultracode agents", help_out)
+        # status / agents / verdicts are read-only views — they never delegate
+        self.assertIn("gate:", h("status"))
+        self.assertIn("subagent", h("agents").lower())          # active-subagents view
+        self.assertIn("verdict", h("verdicts").lower())         # gate-verdicts view
+        self.assertEqual(ctx.dispatch_calls, [])
 
     def test_ultracode_failclosed_blocks_delegation(self):
         ctx = FakeCtx()
