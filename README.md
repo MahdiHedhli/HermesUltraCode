@@ -326,7 +326,10 @@ path), and SQLite for the audit store (no new dependency).
 > dispatches** (configure a reviewer, then run a `delegate_task`). If 9120 is taken, use
 > `hermes ultracode-dashboard --port 9123`.
 
-- **Live** — orchestrator + active worker subagents, backend, status, current dispatch.
+- **Live** — *real subagent execution*: active subagents (goal, status, last tool, tool
+  count, elapsed), a tool-by-tool activity feed, and completed subagents with their output
+  summary. Fed by Hermes's `subagent_start` / `post_tool_call` / `subagent_stop` hooks plus
+  the in-process `list_active_subagents()` registry (secret-redacted, ephemeral).
 - **Queue** — pending dispatches with blast-radius tier badges.
 - **Gate panel** (per dispatch) — verdict, round count, the appended directives (the
   actual "tighten"), rationale, reviewer model, final decision.

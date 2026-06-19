@@ -34,14 +34,17 @@
 
     <!-- LIVE -->
     <section class="view" id="view-live">
-      <h2>Live</h2>
-      <div class="cards" id="live-orchestrator"></div>
-      <h3>Active worker subagents</h3>
-      <table id="live-workers"><thead><tr>
-        <th>Worker</th><th>Backend</th><th>Status</th><th>Tier</th><th>Dispatch</th>
+      <h2>Live <span class="muted">· subagent execution</span></h2>
+      <h3>Active subagents</h3>
+      <table id="live-active"><thead><tr>
+        <th>Goal</th><th>Role</th><th>Status</th><th>Last tool</th><th>Tools</th><th>Elapsed</th>
       </tr></thead><tbody></tbody></table>
-      <h3>Current dispatch</h3>
-      <div id="live-current" class="kv"></div>
+      <h3>Activity feed <span class="muted">· most recent tool calls, newest first</span></h3>
+      <table id="live-feed"><thead><tr>
+        <th>When</th><th>Subagent</th><th>Tool</th><th>Status</th><th>ms</th>
+      </tr></thead><tbody></tbody></table>
+      <h3>Completed <span class="muted">· subagent output</span></h3>
+      <div id="live-completed" class="cards"></div>
     </section>
 
     <!-- QUEUE -->

@@ -130,6 +130,25 @@ class PluginRegisterTest(unittest.TestCase):
         self.assertEqual(ctx.commands["ultracode"]["args_hint"], "<task>")
         self.assertIn("on_session_start", ctx.hooks)
 
+    def test_registers_subagent_progress_hooks(self):
+        self._set_reviewer()
+        ctx = FakeCtx()
+        self.plugin.register(ctx)
+        for h in ("subagent_start", "subagent_stop", "post_tool_call"):
+            self.assertIn(h, ctx.hooks)
+        # the progress hooks are observers: firing them records to the store and returns None
+        from server.progress import PROGRESS
+        PROGRESS.clear()
+        try:
+            ctx.hooks["subagent_start"][0](child_subagent_id="sa9", child_session_id="s9",
+                                          child_goal="demo goal", child_role="leaf")
+            ctx.hooks["post_tool_call"][0](session_id="s9", tool_name="write_file", status="ok", duration_ms=7)
+            snap = PROGRESS.snapshot()
+            self.assertEqual(len(snap["active"]), 1)
+            self.assertEqual(snap["active"][0]["last_tool"], "write_file")
+        finally:
+            PROGRESS.clear()
+
     def test_ultracode_status_shows_gate_and_usage(self):
         self._set_reviewer()
         ctx = FakeCtx()

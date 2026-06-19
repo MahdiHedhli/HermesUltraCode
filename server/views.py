@@ -84,6 +84,52 @@ def _status_for(r: DispatchRecord) -> str:
     return "blocked"
 
 
+def make_progress_live_source(progress) -> LiveSource:
+    """Live source backed by the subagent progress store + Hermes's own
+    ``list_active_subagents()`` registry (when running in-process under Hermes). Shows
+    real active subagents, a tool-by-tool activity feed, and finished subagents with
+    their output. Everything is secret-redacted before it leaves the process."""
+    import time as _time
+
+    def src(store: AuditStore) -> dict[str, Any]:
+        snap = progress.snapshot()
+        active = list(snap["active"])
+        # Enrich/authoritative-ify the active list from Hermes's registry if available.
+        try:
+            from tools.delegate_tool import list_active_subagents  # type: ignore
+
+            now = _time.time()
+            reg = []
+            for r in list_active_subagents():
+                started = r.get("started_at") or now
+                reg.append({
+                    "subagent_id": r.get("subagent_id", ""),
+                    "goal": r.get("goal", "") or "",
+                    "role": r.get("role") or ("orchestrator" if r.get("depth") else "leaf"),
+                    "depth": r.get("depth", 0),
+                    "model": r.get("model", ""),
+                    "status": r.get("status", "running"),
+                    "last_tool": r.get("last_tool", ""),
+                    "tool_count": r.get("tool_count", 0),
+                    "elapsed_s": round(now - started, 1) if isinstance(started, (int, float)) else None,
+                })
+            if reg:
+                active = reg
+        except Exception:  # noqa: BLE001 - registry only exists in a live Hermes process
+            pass
+
+        recent_release = store.query(AuditFilter(limit=1))
+        return redact_obj({
+            "orchestrator": {"status": "online", "backend": "hermes-orchestrator"},
+            "active": active,
+            "feed": snap["feed"],
+            "completed": snap["completed"],
+            "last_gate_decision": record_summary(recent_release[-1]) if recent_release else None,
+        })
+
+    return src
+
+
 def default_queue_source(store: AuditStore) -> list[dict[str, Any]]:
     """Recent dispatches as a queue, newest first, each with its tier badge."""
     recent = list(reversed(store.query(AuditFilter(limit=25))))

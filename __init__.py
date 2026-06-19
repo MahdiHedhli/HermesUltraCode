@@ -249,6 +249,55 @@ def register(ctx) -> None:
     except Exception as exc:  # noqa: BLE001
         log.debug("hermesultracode: on_session_start not registered: %s", exc)
 
+    # Live subagent progress: feed the dashboard's Live tab from the real Hermes
+    # subagent lifecycle (these are observer hooks — they never block or alter a call).
+    try:
+        start_cb, tool_cb, stop_cb = _make_progress_hooks()
+        ctx.register_hook("subagent_start", start_cb)
+        ctx.register_hook("post_tool_call", tool_cb)
+        ctx.register_hook("subagent_stop", stop_cb)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("hermesultracode: subagent progress hooks not registered: %s", exc)
+
+
+def _make_progress_hooks():
+    """Observer hooks that record subagent lifecycle into the in-memory progress store
+    (server.progress.PROGRESS) for the dashboard Live view. Each is fail-safe and returns
+    None (never blocks or rewrites a call)."""
+    from server.progress import PROGRESS
+
+    def on_subagent_start(**kw):
+        try:
+            PROGRESS.subagent_started(
+                kw.get("child_subagent_id", ""), kw.get("child_session_id", ""),
+                kw.get("child_goal", ""), kw.get("child_role", ""),
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    def on_post_tool_call(**kw):
+        try:
+            PROGRESS.tool_event(
+                kw.get("session_id", ""), kw.get("tool_name", ""),
+                kw.get("status", ""), kw.get("duration_ms", 0),
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    def on_subagent_stop(**kw):
+        try:
+            PROGRESS.subagent_stopped(
+                kw.get("child_session_id", ""), kw.get("child_summary", "") or "",
+                kw.get("child_status", "completed"), kw.get("duration_ms", 0),
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    return on_subagent_start, on_post_tool_call, on_subagent_stop
+
 
 def _register_dashboard_cli(ctx, store_path: str) -> None:
     def setup(subparser) -> None:
@@ -261,12 +310,15 @@ def _register_dashboard_cli(ctx, store_path: str) -> None:
         _ensure_importable()
         from core.config import ReadApiConfig
         from core.store_sqlite import SqliteAuditStore
+        from server.progress import PROGRESS
         from server.read_api import ReadApiContext, run
+        from server.views import make_progress_live_source
 
         ctx_obj = ReadApiContext(
             store=SqliteAuditStore(args.store),
             config=ReadApiConfig(host=args.host, port=args.port, session_token=args.token),
             surfaced_config={"store": args.store, "host": args.host, "port": args.port},
+            live_source=make_progress_live_source(PROGRESS),
         )
         run(ctx_obj)
 
@@ -312,7 +364,9 @@ def _ensure_dashboard(store_path: str):
 
             from core.config import ReadApiConfig
             from core.store_sqlite import SqliteAuditStore
+            from server.progress import PROGRESS
             from server.read_api import ReadApiContext, serve
+            from server.views import make_progress_live_source
 
             host = os.environ.get("HERMESULTRACODE_DASHBOARD_HOST", "127.0.0.1")
             base_port = int(os.environ.get("HERMESULTRACODE_DASHBOARD_PORT", "9120"))
@@ -328,6 +382,7 @@ def _ensure_dashboard(store_path: str):
                 ctx_obj = ReadApiContext(
                     store=store, config=cfg,
                     surfaced_config={"store": store_path, "host": host, "port": port},
+                    live_source=make_progress_live_source(PROGRESS),
                 )
                 try:
                     httpd = serve(ctx_obj)

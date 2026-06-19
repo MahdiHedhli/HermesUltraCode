@@ -32,23 +32,44 @@
     const cls = d && d.indexOf("dispatched") === 0 ? "ok" : (d === "escalated" ? "esc" : "block");
     return `<span class="badge badge-${cls}">${esc(d)}</span>`;
   }
+  function statusBadge(s) {
+    s = String(s || "").toLowerCase();
+    let cls = "badge-trivial";
+    if (/run/.test(s)) cls = "badge-standard";
+    else if (/(complete|^ok$|success|done|dispatch)/.test(s)) cls = "badge-ok";
+    else if (/(err|fail|block|interrupt|timeout|denied)/.test(s)) cls = "badge-block";
+    return `<span class="badge ${cls}">${esc(s || "—")}</span>`;
+  }
+  function fmtTime(ts) {
+    if (!ts) return "";
+    try { return new Date(ts * 1000).toLocaleTimeString(); } catch (e) { return ""; }
+  }
 
   // ---- views ----
   async function loadLive() {
     const d = await api("/api/live");
-    $("#live-orchestrator").innerHTML =
-      `<div class="card"><div class="card-h">Orchestrator</div>
-       <div class="card-b">${esc(d.orchestrator.backend)} · ${esc(d.orchestrator.status)}</div></div>`;
-    const tb = $("#live-workers tbody");
-    tb.innerHTML = (d.workers || []).map((w) =>
-      `<tr><td>${esc(w.worker)}</td><td>${esc(w.backend)}</td><td>${esc(w.status)}</td>
-       <td>${tierBadge(w.tier)}</td><td><a href="#" data-id="${esc(w.dispatch_id)}" class="link-panel">${esc((w.dispatch_id||"").slice(0,8))}</a></td></tr>`
-    ).join("") || `<tr><td colspan="5" class="muted">no dispatches yet</td></tr>`;
-    const c = d.current_dispatch;
-    $("#live-current").innerHTML = c
-      ? kv({ id: c.id, tier: c.tier, verdict: c.verdict, decision: c.decision, released: c.released })
-      : '<em class="muted">none</em>';
-    wirePanelLinks();
+    $("#live-active tbody").innerHTML = (d.active || []).map((s) =>
+      `<tr><td>${esc(s.goal || "(no goal)")}</td>
+       <td>${esc(s.role || "")}${s.depth ? " ·d" + esc(s.depth) : ""}</td>
+       <td>${statusBadge(s.status)}</td><td><code>${esc(s.last_tool || "—")}</code></td>
+       <td>${esc(s.tool_count == null ? 0 : s.tool_count)}</td>
+       <td>${s.elapsed_s != null ? esc(s.elapsed_s) + "s" : "—"}</td></tr>`
+    ).join("") || `<tr><td colspan="6" class="muted">no active subagents — start one with <code>/ultracode &lt;task&gt;</code></td></tr>`;
+
+    $("#live-feed tbody").innerHTML = (d.feed || []).map((e) =>
+      `<tr><td>${esc(fmtTime(e.ts))}</td>
+       <td title="${esc(e.goal || "")}"><code>${esc((e.subagent_id || "").slice(0, 8))}</code></td>
+       <td><code>${esc(e.tool)}</code></td><td>${statusBadge(e.status)}</td>
+       <td>${esc(e.duration_ms || 0)}</td></tr>`
+    ).join("") || `<tr><td colspan="5" class="muted">no tool activity yet</td></tr>`;
+
+    $("#live-completed").innerHTML = (d.completed || []).map((c) =>
+      `<div class="card" style="min-width:280px;max-width:520px">
+         <div class="card-h">${statusBadge(c.status)} · ${esc(c.tool_count || 0)} tools · ${esc(Math.round((c.duration_ms || 0) / 1000))}s</div>
+         <div class="card-b"><b>${esc(c.goal || "(no goal)")}</b>
+         <div class="muted" style="margin-top:6px;white-space:pre-wrap">${esc((c.summary || "(no summary)").slice(0, 600))}</div></div>
+       </div>`
+    ).join("") || `<em class="muted">none yet</em>`;
   }
 
   async function loadQueue() {
