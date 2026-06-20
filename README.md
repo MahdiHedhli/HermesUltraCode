@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-black?style=flat-square)](LICENSE)
 &nbsp;![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)
 &nbsp;![Runtime deps: 0](https://img.shields.io/badge/runtime_deps-0-2ea043?style=flat-square)
-&nbsp;![Tests: 155 passing](https://img.shields.io/badge/tests-155_passing-2ea043?style=flat-square)
+&nbsp;![Tests: 172 passing](https://img.shields.io/badge/tests-172_passing-2ea043?style=flat-square)
 &nbsp;![Hermes plugin + skill](https://img.shields.io/badge/Hermes-plugin_%2B_skill-7c3aed?style=flat-square)
 &nbsp;![Degrades: fail-closed](https://img.shields.io/badge/degrades-fail--closed-e5604d?style=flat-square)
 
@@ -14,6 +14,13 @@
   <img src="docs/dashboard.png" alt="HermesUltraCode dashboard — the immutable audit trail with blast-radius tier badges, decision badges, and the fail-closed counter" width="860">
 </p>
 <p align="center"><sub>The read-only dashboard — immutable audit trail with blast-radius tier badges, per-dispatch verdicts, and a <b>fail-closed counter</b> so silent degradation is <i>visible</i>, not hidden.</sub></p>
+
+<p align="center">
+  <img src="docs/dashboard-live.png" alt="Live command center — orchestrator, subagents with their tasks and tool logs, and the reviewer's tightening directives per agent" width="420">
+  &nbsp;
+  <img src="docs/dashboard-plan.png" alt="Plan window — the orchestrator's live build stages: done, active, to do" width="420">
+</p>
+<p align="center"><sub><b>Live</b> command-center during a multi-agent build (left) — the orchestrator, each subagent with its task &amp; tool log, and <b>the reviewer's tightening directives per agent</b>; and the <b>Plan</b> window (right) — the orchestrator's stages, <i>done · active · to&nbsp;do</i>.</sub></p>
 
 A self-contained **pre-dispatch prompt gate**, **neckbeard generation discipline**, and
 **observability dashboard** layered onto an existing

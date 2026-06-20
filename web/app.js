@@ -261,6 +261,9 @@
       if (urlToken) { $("#token").value = urlToken; TOKEN = urlToken.trim(); refresh(); }
     } catch (e) { /* no-op */ }
     $$(".tab").forEach((t) => t.onclick = () => showView(t.dataset.view));
+    // Deep-link a tab via #hash (e.g. ?token=…#plan) — used for headless captures.
+    const hv = (location.hash || "").replace(/^#/, "");
+    if (["live", "plan", "queue", "audit", "neckbeard", "metrics"].includes(hv)) showView(hv);
     $("#audit-filters").onsubmit = (e) => { e.preventDefault(); loadAudit(); };
     $("#gate-panel-close").onclick = () => $("#gate-panel").close();
     setInterval(() => { if (current === "live" || current === "plan") refresh(); }, 4000);
