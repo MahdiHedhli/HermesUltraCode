@@ -16,14 +16,11 @@
 <p align="center"><sub>A <b>native tab in the Hermes web dashboard</b> (sidebar, right under Kanban) during a real multi-agent build — the orchestrator + <b>subagents in parallel</b>, each with its task, tool log, and <b>the reviewer's tightening directive</b>. Ships <i>inside</i> the plugin — zero extra install.</sub></p>
 
 <p align="center">
-  <img src="docs/dashboard-tab-plan.png" alt="The Plan sub-tab — the orchestrator's live build stages: done, active, to do" width="860">
+  <img src="docs/dashboard-tab-plan.png" alt="The Plan sub-tab — the orchestrator's live build stages: done, active, to do" width="430">
+  &nbsp;
+  <img src="docs/dashboard-tab-audit.png" alt="The Audit sub-tab — the immutable trail with tiers, verdicts, decisions, and the fail-closed flag" width="430">
 </p>
-<p align="center"><sub>The <b>Plan</b> sub-tab — the orchestrator's live build stages (<i>done · active · to&nbsp;do</i>), read from its <code>todo</code> tool. The same views are also a <b>build-free standalone dashboard</b> (<code>hermes ultracode-dashboard</code>) when you want it decoupled.</sub></p>
-
-<p align="center">
-  <img src="docs/dashboard.png" alt="Immutable audit trail with blast-radius tier badges, decision badges, and the fail-closed counter" width="860">
-</p>
-<p align="center"><sub>The immutable <b>audit trail</b> — blast-radius tier badges, per-dispatch verdicts, and a <b>fail-closed counter</b> so silent degradation is <i>visible</i>, not hidden.</sub></p>
+<p align="center"><sub>Same tab, more sub-views — <b>Plan</b> (left): the orchestrator's live build stages (<i>done · active · to&nbsp;do</i>) from its <code>todo</code> tool; <b>Audit</b> (right): the immutable trail — blast-radius tiers, per-dispatch verdicts/decisions, and the <b>fail-closed</b> flag so silent degradation is <i>visible</i>. The same views are also a <b>build-free standalone dashboard</b> (<code>hermes ultracode-dashboard</code>) when you want it decoupled.</sub></p>
 
 A self-contained **pre-dispatch prompt gate**, **neckbeard generation discipline**, and
 **observability dashboard** layered onto an existing
