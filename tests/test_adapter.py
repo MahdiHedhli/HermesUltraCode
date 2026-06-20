@@ -61,6 +61,52 @@ class AdapterSeamTest(unittest.TestCase):
         h.pre_tool_call(DISPATCH_TOOL, rewritten["args"], tool_call_id="tcX")
         self.assertEqual(reviewer.calls, 1)
 
+    # -- batch (parallel) dispatch: delegate_task(tasks=[...]) ----------------
+
+    def test_batch_tightens_each_task_independently(self):
+        h, _ = hdg([verdict_json("pass", ["Confine writes to backend/."]),
+                    verdict_json("pass", ["Confine writes to frontend/."])])
+        args = {"tasks": [
+            {"goal": "Build the backend in backend/", "toolsets": ["files"]},
+            {"goal": "Build the frontend in frontend/", "toolsets": ["files"]},
+        ]}
+        out = h.tool_request(DISPATCH_TOOL, args, tool_call_id="b1")
+        tasks = out["args"]["tasks"]
+        self.assertEqual(len(tasks), 2)
+        self.assertTrue(tasks[0]["goal"].startswith("Build the backend in backend/"))
+        self.assertIn("Confine writes to backend/.", tasks[0]["goal"])
+        self.assertIn("Confine writes to frontend/.", tasks[1]["goal"])
+        self.assertIsNone(h.pre_tool_call(DISPATCH_TOOL, out["args"], tool_call_id="b1"))
+
+    def test_batch_runs_gate_once_per_task_across_seams(self):
+        reviewer = MockProvider(lab="reviewer-lab", model="r",
+                                responses=[verdict_json("pass", ["a"]), verdict_json("pass", ["b"])])
+        h = HermesDispatchGate(gate=make_gate(reviewer=reviewer))
+        args = {"tasks": [{"goal": "task one"}, {"goal": "task two"}]}
+        rewritten = h.tool_request(DISPATCH_TOOL, args, tool_call_id="bX")
+        h.pre_tool_call(DISPATCH_TOOL, rewritten["args"], tool_call_id="bX")
+        self.assertEqual(reviewer.calls, 2)   # once per task, not 4
+
+    def test_batch_blocks_when_one_task_is_blocked(self):
+        h, _ = hdg([verdict_json("pass", []), verdict_json("block", rationale="task two unsafe")])
+        args = {"tasks": [{"goal": "safe task"}, {"goal": "risky task"}]}
+        out = h.pre_tool_call(DISPATCH_TOOL, args, tool_call_id="b2")
+        self.assertEqual(out["action"], "block")
+        self.assertIn("task 2/2", out["message"])
+
+    def test_batch_failclosed_when_no_gate(self):
+        h = HermesDispatchGate(gate=None, config_error="no reviewer")
+        out = h.pre_tool_call(DISPATCH_TOOL, {"tasks": [{"goal": "x"}]}, tool_call_id="b3")
+        self.assertEqual(out["action"], "block")
+        self.assertIn("fail-closed", out["message"])
+
+    def test_batch_as_json_string_is_parsed(self):
+        import json
+        h, _ = hdg([verdict_json("pass", ["dir"])])
+        args = {"tasks": json.dumps([{"goal": "string-encoded task"}])}
+        out = h.tool_request(DISPATCH_TOOL, args, tool_call_id="b4")
+        self.assertIn("dir", out["args"]["tasks"][0]["goal"])   # parsed, tightened, returned as a list
+
     def test_idempotent_when_pre_sees_tightened_goal(self):
         # Even without a cache hit, a tightened goal must recover its base, not stack.
         reviewer = MockProvider(lab="reviewer-lab", model="r",

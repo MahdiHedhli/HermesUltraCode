@@ -39,6 +39,23 @@ DISPATCH_TOOL = "delegate_task"
 GOAL_ARG = "goal"        # the subagent's task — the gate's immutable "base prompt"
 CONTEXT_ARG = "context"  # background data the subagent receives
 TOOLSETS_ARG = "toolsets"
+TASKS_ARG = "tasks"      # batch (parallel) dispatch: a list of {goal, context, toolsets, role}
+
+
+def _as_task_list(tasks: Any) -> list | None:
+    """Normalise ``delegate_task``'s batch arg to a list of task dicts, or None if it
+    isn't a batch. Hermes accepts ``tasks`` as a list OR a JSON-array string, so we
+    accept both — and a tightened list is a valid arg to hand back."""
+    if isinstance(tasks, list):
+        return tasks or None
+    if isinstance(tasks, str) and tasks.strip()[:1] == "[":
+        import json
+        try:
+            v = json.loads(tasks)
+        except Exception:  # noqa: BLE001
+            return None
+        return v if isinstance(v, list) and v else None
+    return None
 
 # Blast-radius hints from the subagent's granted toolsets (touched paths are unknown
 # before the subagent runs, so tiering is necessarily coarser at this boundary).
@@ -87,6 +104,25 @@ class HermesDispatchGate:
             return None
         if self.gate is None:
             return None  # fail-closed block happens in pre_tool_call
+
+        tasks = _as_task_list(args.get(TASKS_ARG))
+        if tasks is not None:  # BATCH: tighten each task's goal independently
+            results = self._decide_batch(tool_call_id, tasks)
+            new_tasks, changed = [], False
+            for t, r in zip(tasks, results):
+                if isinstance(t, dict) and r.released and r.dispatched_prompt is not None:
+                    nt = dict(t)
+                    if nt.get(GOAL_ARG) != r.dispatched_prompt:
+                        nt[GOAL_ARG] = r.dispatched_prompt
+                        changed = True
+                    new_tasks.append(nt)
+                else:
+                    new_tasks.append(t)
+            if changed:
+                log.info("adapter.tighten_batch", extra={"event": "tighten_batch", "n": len(tasks)})
+                return {"args": {**args, TASKS_ARG: new_tasks}}
+            return None
+
         result = self._decide(tool_call_id, args)
         if result.released and result.dispatched_prompt is not None:
             new_args = dict(args)
@@ -116,6 +152,23 @@ class HermesDispatchGate:
                     "and re-enable, or disable the plugin to dispatch un-vetted."
                 ),
             }
+        tasks = _as_task_list(args.get(TASKS_ARG))
+        if tasks is not None:  # BATCH: block only if a task fails review (fail-closed)
+            results = self._decide_batch(tool_call_id, tasks)
+            for i, r in enumerate(results):
+                if not r.released:
+                    reason = r.fail_closed_reason or r.rationale or "gate did not release this task"
+                    log.warning("adapter.block_batch",
+                                extra={"event": "block_batch", "task": i, "decision": r.decision})
+                    return {
+                        "action": "block",
+                        "message": (
+                            f"[HermesUltraCode gate · batch · task {i + 1}/{len(tasks)} · "
+                            f"{r.decision} · tier={r.tier}] {reason}"
+                        ),
+                    }
+            return None
+
         result = self._decide(tool_call_id, args)
         if not result.released:
             reason = result.fail_closed_reason or result.rationale or "gate did not release this dispatch"
@@ -145,12 +198,25 @@ class HermesDispatchGate:
     # -- gate evaluation, memoised by tool_call_id ---------------------------
 
     def _decide(self, tool_call_id: str, args: dict) -> DispatchResult:
-        key = tool_call_id or _args_key(args)
+        return self._decide_one(tool_call_id or _args_key(args), args)
+
+    def _decide_batch(self, tool_call_id: str, tasks: list) -> list[DispatchResult]:
+        """Review/tighten EACH task in a batch dispatch independently, keyed by
+        (tool_call_id, index) so ``tool_request`` and ``pre_tool_call`` reuse the same
+        per-task decision (the gate runs once per task across both seams)."""
+        out = []
+        for i, t in enumerate(tasks):
+            src = t if isinstance(t, dict) else {GOAL_ARG: str(t)}
+            key = f"{tool_call_id}:{i}" if tool_call_id else f"{_args_key(src)}:{i}"
+            out.append(self._decide_one(key, src))
+        return out
+
+    def _decide_one(self, key: str, src: dict) -> DispatchResult:
         cached = self._cache.get(key)
         if cached is not None:
             self._cache.move_to_end(key)
             return cached
-        base, meta = self._extract(args)
+        base, meta = self._extract(src)
         try:
             result = self.gate.review_and_dispatch(base, meta)  # never raises by design
         except Exception as exc:  # noqa: BLE001 - last-resort fail-closed guard
