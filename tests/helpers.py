@@ -20,22 +20,24 @@ from core.tiering import DispatchMeta, TieringConfig  # noqa: E402
 
 
 def verdict_json(verdict="pass", added_directives=None, rationale="ok",
-                 scope="in_scope", round=0, model="reviewer-x") -> str:
-    return json.dumps(
-        {
-            "verdict": verdict,
-            "added_directives": added_directives or [],
-            "rationale": rationale,
-            "scope_assessment": scope,
-            "round": round,
-            "reviewer_model": model,
-        }
-    )
+                 scope="in_scope", round=0, model="reviewer-x", difficulty=None) -> str:
+    obj = {
+        "verdict": verdict,
+        "added_directives": added_directives or [],
+        "rationale": rationale,
+        "scope_assessment": scope,
+        "round": round,
+        "reviewer_model": model,
+    }
+    if difficulty is not None:
+        obj["difficulty"] = difficulty
+    return json.dumps(obj)
 
 
 def make_gate(reviewer_responses=None, *, reviewer=None, store=None,
               round_cap=2, cheap=None, tiering_config=None, reviewer_timeout_s=5.0,
-              workspace_directive=None, coordination_directive=None) -> Gate:
+              workspace_directive=None, coordination_directive=None,
+              router_catalog=None, router_config=None, local_probe=None) -> Gate:
     """Build a Gate wired to mock providers and an in-memory store."""
     if reviewer is None:
         reviewer = MockProvider(lab="reviewer-lab", model="reviewer-x")
@@ -53,6 +55,9 @@ def make_gate(reviewer_responses=None, *, reviewer=None, store=None,
         cheap_reviewer_provider=cheap,
         workspace_directive=workspace_directive,
         coordination_directive=coordination_directive,
+        router_catalog=router_catalog,
+        router_config=router_config,
+        local_probe=local_probe,
     )
 
 

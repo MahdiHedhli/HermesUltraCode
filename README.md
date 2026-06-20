@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-black?style=flat-square)](LICENSE)
 &nbsp;![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)
 &nbsp;![Runtime deps: 0](https://img.shields.io/badge/runtime_deps-0-2ea043?style=flat-square)
-&nbsp;![Tests: 184 passing](https://img.shields.io/badge/tests-184_passing-2ea043?style=flat-square)
+&nbsp;![Tests: 208 passing](https://img.shields.io/badge/tests-208_passing-2ea043?style=flat-square)
 &nbsp;![Hermes plugin + skill](https://img.shields.io/badge/Hermes-plugin_%2B_skill-7c3aed?style=flat-square)
 &nbsp;![Degrades: fail-closed](https://img.shields.io/badge/degrades-fail--closed-e5604d?style=flat-square)
 
@@ -74,7 +74,7 @@ orchestrator base prompt ─▶ [ GATE ] ─▶ dispatched prompt ─▶ worker
   catches the blind spots a same-lineage model waves through. ([more ↓](#cross-lab-review))
 - 🧾 **Audited like evidence** — one immutable, secret-redacted row per dispatch;
   `UPDATE`/`DELETE` blocked at the database; JSON/CSV export.
-- 🪶 **Zero runtime dependencies** — stdlib-only core, **184 offline tests**, the model
+- 🪶 **Zero runtime dependencies** — stdlib-only core, **208 offline tests**, the model
   provider mocked.
 
 ## The eight non-negotiable invariants
@@ -294,6 +294,7 @@ Hermes's own `PluginManager`/`PluginContext`:
 | **Plan** | `register_command('ultracode', …)` — planning is the default; `yolo` bypasses | scoping pass (questions + target dir) before a build; the `scope-first` skill (discoverable via `skills.external_dirs`, see below) makes the agent ask via `clarify` |
 | **Directory** | `Gate.workspace_directive` seeded into every file-writing review | tightens each build to *declare and stay within a target directory* (off via `HERMESULTRACODE_DIRECTORY_DIRECTIVE=0`) |
 | **Coordinate** | `Gate.coordination_directive` seeded into each task of a *parallel batch* (≥2 siblings) | advisory tighten: concurrent subagents coordinate *by contract*, not by reading each other's in-progress files (off via `HERMESULTRACODE_COORDINATION_DIRECTIVE=0`) |
+| **Route** | `core/router.py` annotates each *released* dispatch (on via `HERMESULTRACODE_ROUTING=1`) | advisory cost-aware routing: the cheapest *capable* worker, preferring a ~free local model; risk-gated off local for elevated/merge work. See [Cost-aware routing](#cost-aware-routing-local-first-multi-model) |
 | **Neckbeard** | `register_skill('neckbeard', …)` + `skills/neckbeard/SKILL.md` | the minimalism ruleset as an installable skill |
 | **Dashboard** | a native Hermes web-dashboard tab (`dashboard/` plugin: manifest + SDK-React bundle + FastAPI `plugin_api.py`) **+** `register_cli_command('ultracode-dashboard', …)` | a tab beside Kanban (zero extra install), or the build-free standalone read API |
 
@@ -302,6 +303,48 @@ Both seams receive the same `tool_call_id`, so the gate (a reviewer model call) 
 and **always** installs the `pre_tool_call` hook: if the reviewer can't be configured (or
 its lab matches the orchestrator's), the hook blocks every `delegate_task` rather than let
 a worker run un-vetted (invariant 1).
+
+## Cost-aware routing (local-first, multi-model)
+
+Run subagents on the **cheapest model that can actually do the task**, and strongly prefer a
+**local model** (LM Studio / Ollama on your own box) whose marginal cost is ~0. This ships in
+three parts, default-off and safe:
+
+**① Run subagents on your local box (config, zero code).** `hermes ultracode-local` probes
+your local endpoint, shows the loaded models, and prints (or `--apply` writes, after a backup)
+the `delegation:` block that points subagents at it:
+
+```yaml
+delegation:
+  base_url: http://localhost:1234/v1   # LM Studio; Ollama = :11434/v1
+  model: google/gemma-4-31b
+  api_mode: openai
+```
+
+Your orchestrator and the UltraCode **cross-lab reviewer stay on their cloud labs** — only the
+*workers* move local, so the reviewer ≠ orchestrator rule is untouched.
+
+**② Advisory cost router (`HERMESULTRACODE_ROUTING=1`).** On every *released* dispatch, the
+router (`core/router.py`) picks the cheapest model that clears the task's **required capability
+tier** — `max(blast-radius tier, the reviewer's `difficulty` hint)` — out of a catalog
+(override with `HERMESULTRACODE_MODEL_CATALOG`). A local model is preferred by an
+`effective_cost` that costs it at ~electricity scaled by a single **`local_bias`** knob, but is
+**risk-gated off** elevated / merge-authority work no matter how cheap, capped at a
+`local_trusted_tier` (default 2, so a quantized local model never takes tier-3 work), and
+skipped if a non-blocking liveness probe says the box is down. The decision is **advisory**: it
+never blocks and never changes the dispatched prompt — it annotates the audit row with the
+model it *would* pick and the **dollars saved vs cloud**, surfaced in `/api/metrics → routing`
+and the dashboard. Tune with `HERMESULTRACODE_LOCAL_BIAS`, `…_LOCAL_TRUSTED_TIER`,
+`…_LOCAL_BASE_URL`, `…_LOCAL_BOX_WATTS`, `…_USD_PER_KWH`.
+
+**③ Per-task binding (upstream).** Hermes binds the worker model from one *global* delegation
+block, so true per-task routing needs a small, additive Hermes change. The advisory router
+flips to *binding* with a one-line adapter change the day it lands — see
+[docs/upstream-routing.md](docs/upstream-routing.md).
+
+> Routing is a **sibling** of the security gate, not part of it: the gate stays tighten-only /
+> fail-closed; the router is a separate, deterministic cost/observability layer. Risk overrides
+> cost, always.
 
 ### Driving it: `/ultracode` + on-load dashboard
 

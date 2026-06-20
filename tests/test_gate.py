@@ -57,6 +57,49 @@ class GateEndToEndTest(unittest.TestCase):
         self.assertTrue(ro.released)
         self.assertNotIn(C, ro.dispatched_prompt or "")
 
+    def test_routing_annotation_is_advisory_only(self):
+        # With a catalog + an alive local box, a RELEASED standard-tier dispatch is annotated
+        # with the local worker the router would pick — and the dispatched prompt is untouched
+        # (routing never changes the gate's release or the worker prompt).
+        from core.catalog import load_catalog
+
+        class _Alive:
+            def alive(self):
+                return True
+
+        gate = make_gate(reviewer_responses=[verdict_json("pass", [], difficulty=2)],
+                         router_catalog=load_catalog(), local_probe=_Alive())
+        self.assertTrue(gate.routing_enabled)
+        res = gate.review_and_dispatch(BASE, standard_meta())
+        self.assertTrue(res.released)
+        self.assertEqual(res.dispatched_prompt, BASE)                  # prompt untouched by routing
+        rec = gate.store.all()[-1]
+        self.assertEqual(rec.routed_model, "local/gemma")
+        self.assertTrue(rec.routed_is_local)
+        self.assertGreater(rec.est_savings_usd, 0.0)
+
+    def test_routing_off_leaves_record_unannotated(self):
+        gate = make_gate(reviewer_responses=[verdict_json("pass", [])])  # no catalog
+        self.assertFalse(gate.routing_enabled)
+        gate.review_and_dispatch(BASE, standard_meta())
+        self.assertEqual(gate.store.all()[-1].routed_model, "")
+
+    def test_routing_risk_gates_local_for_elevated(self):
+        # An elevated-tier dispatch is never advised onto the local box, even with it alive.
+        from core.catalog import load_catalog
+        from core.tiering import TIER_ELEVATED
+
+        class _Alive:
+            def alive(self):
+                return True
+
+        gate = make_gate(reviewer_responses=[verdict_json("pass", [], difficulty=1)],
+                         router_catalog=load_catalog(), local_probe=_Alive())
+        gate.review_and_dispatch(BASE, DispatchMeta(touched_paths=("infra/x",), carries_merge_authority=False))
+        rec = gate.store.all()[-1]
+        self.assertEqual(rec.tier, TIER_ELEVATED)
+        self.assertFalse(rec.routed_is_local)
+
     def test_revise_appends_then_dispatches_on_pass(self):
         gate = make_gate(
             reviewer_responses=[

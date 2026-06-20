@@ -104,9 +104,14 @@ Respond with ONLY a JSON object, no prose around it:
   "added_directives": ["short imperative constraint", "..."],
   "rationale": "one or two sentences",
   "scope_assessment": "in_scope" | "needs_narrowing" | "out_of_scope",
+  "difficulty": 1 | 2 | 3,
   "round": <integer, the current round index>,
   "reviewer_model": "<your model id>"
 }
+"difficulty" is your estimate of the worker capability this task NEEDS, independent of the
+verdict: 1 = trivial/boilerplate, 2 = a standard feature or refactor, 3 = hard reasoning,
+architecture, or anything safety-critical. It is an advisory hint for model routing and
+never affects pass/block; omit it only if you genuinely cannot tell.
 "scope_assessment" is about how well-SPECIFIED the task is, not its topic: "in_scope" =
 clear enough to proceed (the default), "needs_narrowing" = genuinely ambiguous so you
 appended a clarifying directive. "out_of_scope" is essentially never correct — do NOT use
@@ -193,6 +198,9 @@ class Gate:
         cheap_reviewer_provider: Provider | None = None,
         workspace_directive: str | None = None,
         coordination_directive: str | None = None,
+        router_catalog: dict | None = None,
+        router_config=None,
+        local_probe=None,
     ) -> None:
         self.reviewer = reviewer_provider
         self.orchestrator = orchestrator_provider
@@ -214,6 +222,36 @@ class Gate:
         # racing on each other's in-progress files. Never blocks (it's just an appended
         # directive that flows through validate_tighten); opt-in (default None).
         self.coordination_directive = (coordination_directive or "").strip() or None
+        # Cost-aware routing (ADVISORY): when a non-empty model catalog is supplied, every
+        # RELEASED dispatch is annotated with the worker model the router would pick and the
+        # dollars it would save. It runs strictly after release, never blocks, and never
+        # touches the dispatched prompt — purely an observability layer on the audit row.
+        self._router_catalog = router_catalog or None
+        self._router_config = router_config
+        self._local_probe = local_probe
+
+    @property
+    def routing_enabled(self) -> bool:
+        return bool(self._router_catalog)
+
+    def _annotate_route(self, record, difficulty: int):
+        """Advisory: compute the worker model the router would pick for a released
+        dispatch and stamp the routing fields onto the record. Never raises into the
+        dispatch path — a routing fault degrades to an un-annotated row."""
+        from dataclasses import replace as _replace
+
+        from core.router import choose_worker
+        try:
+            alive = bool(self._local_probe.alive()) if self._local_probe is not None else False
+            d = choose_worker(record.tier, self._router_catalog, difficulty=int(difficulty or 0),
+                              local_alive=alive, cfg=self._router_config)
+            return _replace(record, routed_model=d.model_id, routed_lab=d.lab,
+                            routed_is_local=d.is_local, route_required_tier=d.required_tier,
+                            route_reason=d.reason, est_cost_usd=d.est_cost_usd,
+                            est_savings_usd=d.est_savings_usd)
+        except Exception:  # noqa: BLE001 - advisory must never break a dispatch
+            log.exception("gate.route_error")
+            return record
 
     def _seed_directives(self, meta: DispatchMeta) -> tuple[str, ...]:
         """Deterministic policy directives prepended to a review's tightening."""
@@ -503,6 +541,7 @@ class Gate:
             dissent_logged=dissent_logged,
             neckbeard_block=False,
             reviewer_model=verdict.reviewer_model,
+            difficulty=verdict.difficulty,
         )
 
     # -- audit + result assembly --------------------------------------------
@@ -533,6 +572,8 @@ class Gate:
             escalated=kw["escalated"],
             neckbeard_block=kw["neckbeard_block"],
         )
+        if self.routing_enabled and kw["released"]:
+            record = self._annotate_route(record, kw.get("difficulty", 0))
         result = DispatchResult(
             released=kw["released"],
             decision=kw["decision"],

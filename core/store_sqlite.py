@@ -44,7 +44,16 @@ CREATE TABLE IF NOT EXISTS dispatch_audit (
     escalated         INTEGER NOT NULL DEFAULT 0,
     neckbeard_block    INTEGER NOT NULL DEFAULT 0,
     latency_ms        INTEGER NOT NULL DEFAULT 0,
-    added_tokens      INTEGER NOT NULL DEFAULT 0
+    added_tokens      INTEGER NOT NULL DEFAULT 0,
+    -- Cost-aware routing (advisory): the worker model the router WOULD pick + the dollars
+    -- that choice saves vs the cheapest eligible cloud model. All defaulted/additive.
+    routed_model      TEXT NOT NULL DEFAULT '',
+    routed_lab        TEXT NOT NULL DEFAULT '',
+    routed_is_local   INTEGER NOT NULL DEFAULT 0,
+    route_required_tier INTEGER NOT NULL DEFAULT 0,
+    route_reason      TEXT NOT NULL DEFAULT '',
+    est_cost_usd      REAL NOT NULL DEFAULT 0,
+    est_savings_usd   REAL NOT NULL DEFAULT 0
 );
 
 -- Structural immutability: the audit trail is append-only evidence.
@@ -88,7 +97,27 @@ class SqliteAuditStore(AuditStore):
         self._lock = threading.Lock()
         with self._lock:
             self._conn.executescript(_SCHEMA)
+            self._migrate_add_columns()
             self._conn.commit()
+
+    # Additive migration so an audit DB created before cost-aware routing gains the new
+    # columns. ALTER TABLE ADD COLUMN is DDL — it does NOT fire the BEFORE UPDATE/DELETE
+    # immutability triggers, so the append-only guarantee on existing rows is preserved.
+    _ROUTING_COLUMNS = (
+        ("routed_model", "TEXT NOT NULL DEFAULT ''"),
+        ("routed_lab", "TEXT NOT NULL DEFAULT ''"),
+        ("routed_is_local", "INTEGER NOT NULL DEFAULT 0"),
+        ("route_required_tier", "INTEGER NOT NULL DEFAULT 0"),
+        ("route_reason", "TEXT NOT NULL DEFAULT ''"),
+        ("est_cost_usd", "REAL NOT NULL DEFAULT 0"),
+        ("est_savings_usd", "REAL NOT NULL DEFAULT 0"),
+    )
+
+    def _migrate_add_columns(self) -> None:
+        existing = {r["name"] for r in self._conn.execute("PRAGMA table_info(dispatch_audit)")}
+        for name, decl in self._ROUTING_COLUMNS:
+            if name not in existing:
+                self._conn.execute(f"ALTER TABLE dispatch_audit ADD COLUMN {name} {decl}")
 
     def append(self, record: DispatchRecord) -> str:
         import json
@@ -115,6 +144,13 @@ class SqliteAuditStore(AuditStore):
             "neckbeard_block": int(bool(record.neckbeard_block)),
             "latency_ms": int(record.latency_ms),
             "added_tokens": int(record.added_tokens),
+            "routed_model": str(record.routed_model),
+            "routed_lab": str(record.routed_lab),
+            "routed_is_local": int(bool(record.routed_is_local)),
+            "route_required_tier": int(record.route_required_tier),
+            "route_reason": str(record.route_reason),
+            "est_cost_usd": float(record.est_cost_usd),
+            "est_savings_usd": float(record.est_savings_usd),
         }
         cols = ", ".join(values.keys())
         placeholders = ", ".join(f":{k}" for k in values.keys())
@@ -213,6 +249,11 @@ class SqliteAuditStore(AuditStore):
 def _row_to_record(row: sqlite3.Row) -> DispatchRecord:
     import json
 
+    keys = set(row.keys())
+
+    def g(name, default):  # tolerate a pre-migration row missing routing columns
+        return row[name] if name in keys else default
+
     return DispatchRecord(
         id=row["id"],
         ts=row["ts"],
@@ -233,4 +274,11 @@ def _row_to_record(row: sqlite3.Row) -> DispatchRecord:
         neckbeard_block=bool(row["neckbeard_block"]),
         latency_ms=row["latency_ms"],
         added_tokens=row["added_tokens"],
+        routed_model=g("routed_model", ""),
+        routed_lab=g("routed_lab", ""),
+        routed_is_local=bool(g("routed_is_local", 0)),
+        route_required_tier=int(g("route_required_tier", 0) or 0),
+        route_reason=g("route_reason", ""),
+        est_cost_usd=float(g("est_cost_usd", 0.0) or 0.0),
+        est_savings_usd=float(g("est_savings_usd", 0.0) or 0.0),
     )

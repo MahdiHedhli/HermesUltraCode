@@ -257,6 +257,22 @@ def compute_metrics(store: AuditStore, benchmark: dict | None = None) -> dict[st
         "by_tier": by_tier,
         "by_verdict": by_verdict,
     }
+    # Cost-aware routing (advisory): the savings story. Only present once any dispatch has
+    # been annotated by the router (routing on), so it stays absent for a routing-off gate.
+    routed = [r for r in rows if getattr(r, "routed_model", "")]
+    if routed:
+        advised_local = sum(1 for r in routed if getattr(r, "routed_is_local", False))
+        total_cost = sum(float(getattr(r, "est_cost_usd", 0.0)) for r in rows)
+        total_saved = sum(float(getattr(r, "est_savings_usd", 0.0)) for r in rows)
+        metrics["routing"] = {
+            "advised_total": len(routed),
+            "advised_local": advised_local,
+            "advised_cloud": len(routed) - advised_local,
+            "est_cost_usd": round(total_cost, 4),
+            "est_savings_usd": round(total_saved, 4),
+            "baseline_cloud_usd": round(total_cost + total_saved, 4),
+        }
+
     if benchmark:
         metrics["benchmark"] = benchmark
     return metrics

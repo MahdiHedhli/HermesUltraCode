@@ -106,6 +106,10 @@ def _build_gate(store):
     coordination = ("" if os.environ.get("HERMESULTRACODE_COORDINATION_DIRECTIVE", "1").lower()
                     in ("0", "false", "no", "off") else COORDINATION_DIRECTIVE)
 
+    # Cost-aware routing (ADVISORY, opt-in via HERMESULTRACODE_ROUTING=1): annotates each
+    # released dispatch with the worker model the router would pick + the savings vs cloud.
+    router_catalog, router_config, local_probe = _build_router()
+
     return Gate(
         reviewer_provider=reviewer,
         orchestrator_provider=orchestrator,
@@ -115,7 +119,52 @@ def _build_gate(store):
         tiering_config=TieringConfig(),
         workspace_directive=workspace,
         coordination_directive=coordination,
+        router_catalog=router_catalog,
+        router_config=router_config,
+        local_probe=local_probe,
     )
+
+
+def _routing_on() -> bool:
+    return os.environ.get("HERMESULTRACODE_ROUTING", "0").lower() in ("1", "true", "yes", "on")
+
+
+def _build_router():
+    """Return (catalog, RouterConfig, LocalProbe) when routing is enabled, else (None, None,
+    None). Advisory only: the gate annotates released dispatches and never binds or blocks,
+    so any build error degrades to routing-off rather than breaking the gate."""
+    if not _routing_on():
+        return None, None, None
+    try:
+        from core.catalog import load_catalog, load_catalog_file
+        from core.local_probe import LocalProbe
+        from core.router import RouterConfig
+
+        path = os.environ.get("HERMESULTRACODE_MODEL_CATALOG", "").strip()
+        catalog = load_catalog_file(path) if path else load_catalog()
+
+        def _f(name, default):
+            try:
+                return float(os.environ.get(name) or default)
+            except (TypeError, ValueError):
+                return default
+
+        cfg = RouterConfig(
+            local_bias=_f("HERMESULTRACODE_LOCAL_BIAS", 0.15),
+            box_watts=_f("HERMESULTRACODE_LOCAL_BOX_WATTS", 120.0),
+            usd_per_kwh=_f("HERMESULTRACODE_USD_PER_KWH", 0.20),
+            local_trusted_tier=int(_f("HERMESULTRACODE_LOCAL_TRUSTED_TIER", 2)),
+            default_api_worker=os.environ.get("HERMESULTRACODE_DEFAULT_API_WORKER", "").strip(),
+        )
+        base_url = os.environ.get(
+            "HERMESULTRACODE_LOCAL_BASE_URL", "http://localhost:1234/v1"
+        ).strip()
+        probe = LocalProbe(base_url) if base_url else None
+        log.info("ultracode.routing_enabled", extra={"models": len(catalog), "local": base_url})
+        return catalog, cfg, probe
+    except Exception:  # noqa: BLE001 - routing is advisory; never break gate construction
+        log.exception("ultracode.router_build_error")
+        return None, None, None
 
 
 # ---------------------------------------------------------------------------
@@ -267,6 +316,12 @@ def register(ctx) -> None:
         _register_dashboard_cli(ctx, _default_store_path())
     except Exception as exc:  # noqa: BLE001
         log.debug("hermesultracode: dashboard CLI not registered: %s", exc)
+
+    # Local-first delegation helper: `hermes ultracode-local` (point subagents at LM Studio).
+    try:
+        _register_local_cli(ctx)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("hermesultracode: local CLI not registered: %s", exc)
 
     # /ultracode slash command — the explicit, reliable way to delegate through the gate.
     try:
@@ -421,6 +476,80 @@ def _register_dashboard_cli(ctx, store_path: str) -> None:
         handler_fn=handler,
         description="Read-only gate observability dashboard.",
     )
+
+
+def _register_local_cli(ctx) -> None:
+    """`hermes ultracode-local`: point Hermes subagents at a local LM Studio model so workers
+    run cheap/free, while the orchestrator and the UltraCode cross-lab reviewer stay on their
+    cloud labs. Dry-run by default; ``--apply`` appends a delegation block to ~/.hermes/
+    config.yaml (after a backup, and only if one is not already present)."""
+
+    def setup(sp) -> None:
+        sp.add_argument("--base-url", default=os.environ.get(
+            "HERMESULTRACODE_LOCAL_BASE_URL", "http://localhost:1234/v1"))
+        sp.add_argument("--model", default="",
+                        help="local model id (auto-detected from the endpoint if omitted)")
+        sp.add_argument("--apply", action="store_true",
+                        help="write the delegation block into ~/.hermes/config.yaml (backs up first)")
+
+    def handler(args) -> None:
+        _ensure_importable()
+        from core.local_probe import LocalProbe
+
+        probe = LocalProbe(args.base_url)
+        alive = probe.alive()
+        model = args.model or (probe.models[0] if probe.models else "<your-loaded-model>")
+        print()
+        print(f"  LM Studio endpoint : {args.base_url}  [{'reachable' if alive else 'NOT reachable'}]")
+        if alive and probe.models:
+            print(f"  models loaded      : {', '.join(probe.models)}")
+        print()
+        print("  Recommended ~/.hermes/config.yaml block — subagents run LOCAL; your")
+        print("  orchestrator and the UltraCode cross-lab reviewer stay on their cloud labs:")
+        print()
+        for line in (f"delegation:\n  base_url: {args.base_url}\n  model: {model}\n"
+                     "  api_mode: openai").splitlines():
+            print("    " + line)
+        print()
+        print("  Then turn on advisory cost routing so the dashboard shows your savings:")
+        print("    export HERMESULTRACODE_ROUTING=1")
+        print()
+        if not args.apply:
+            print("  (dry run — re-run with --apply to write it; a backup is made first)")
+            return
+        _apply_delegation_block(args.base_url, model)
+
+    ctx.register_cli_command(
+        "ultracode-local",
+        help="Point Hermes subagents at your local LM Studio model (free workers, cloud reviewer).",
+        setup_fn=setup,
+        handler_fn=handler,
+        description="Configure local-first subagent delegation.",
+    )
+
+
+def _apply_delegation_block(base_url: str, model: str) -> None:
+    import re
+    import shutil
+
+    cfg_path = os.path.expanduser("~/.hermes/config.yaml")
+    if not os.path.exists(cfg_path):
+        print(f"  config not found at {cfg_path}; create it with the block above.")
+        return
+    with open(cfg_path, "r", encoding="utf-8") as fh:
+        text = fh.read()
+    if re.search(r"(?m)^delegation:", text):
+        print("  A 'delegation:' block already exists in your config — not overwriting it.")
+        print("  Edit it by hand to the base_url / model / api_mode shown above.")
+        return
+    backup = cfg_path + ".bak.ultracode-local"
+    shutil.copyfile(cfg_path, backup)
+    block = ("\n# Added by `hermes ultracode-local`: run subagents on the local model.\n"
+             f"delegation:\n  base_url: {base_url}\n  model: {model}\n  api_mode: openai\n")
+    with open(cfg_path, "a", encoding="utf-8") as fh:
+        fh.write(block)
+    print(f"  ✓ appended delegation block to {cfg_path} (backup: {backup}).")
+    print("  Restart Hermes (or `hermes gateway restart`) to run subagents locally.")
 
 
 # ---------------------------------------------------------------------------

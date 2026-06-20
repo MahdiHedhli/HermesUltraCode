@@ -40,6 +40,10 @@ class Verdict:
     scope_assessment: str = SCOPE_IN
     round: int = 0
     reviewer_model: str = ""
+    # Advisory routing hint (1=trivial .. 3=hard); 0 = unspecified. NEVER fail-closed:
+    # a malformed difficulty must not block a dispatch, so it is clamped to 0..3 at parse
+    # time and never raises. The router maps 0 -> max tier (fail-safe-up).
+    difficulty: int = 0
 
     def __post_init__(self) -> None:
         if self.verdict not in VALID_VERDICTS:
@@ -77,6 +81,7 @@ class Verdict:
             "scope_assessment": self.scope_assessment,
             "round": self.round,
             "reviewer_model": self.reviewer_model,
+            "difficulty": self.difficulty,
         }
 
 
@@ -139,7 +144,21 @@ def parse_verdict(raw: Any, *, default_round: int = 0, default_model: str = "") 
         scope_assessment=str(data.get("scope_assessment", SCOPE_IN)).strip().lower(),
         round=int(data.get("round", default_round)),
         reviewer_model=str(data.get("reviewer_model") or default_model),
+        difficulty=_coerce_difficulty(data.get("difficulty")),
     )
+
+
+def _coerce_difficulty(raw: Any) -> int:
+    """Advisory routing hint, clamped to 0..3. Returns 0 (unspecified) on anything
+    invalid. NEVER raises — a malformed hint must not fail-close a dispatch (it is
+    advisory to the router, not part of the pass/block decision)."""
+    try:
+        d = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    if d < 1:
+        return 0
+    return 3 if d > 3 else d
 
 
 def _strip_code_fence(text: str) -> str:

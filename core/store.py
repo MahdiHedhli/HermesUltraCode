@@ -46,6 +46,13 @@ COLUMNS: tuple[str, ...] = (
     "neckbeard_block",
     "latency_ms",
     "added_tokens",
+    "routed_model",
+    "routed_lab",
+    "routed_is_local",
+    "route_required_tier",
+    "route_reason",
+    "est_cost_usd",
+    "est_savings_usd",
 )
 
 
@@ -76,6 +83,16 @@ class DispatchRecord:
     # a cheap proxy for the tokens the gate added on top of the base.
     latency_ms: int = 0
     added_tokens: int = 0
+    # Cost-aware routing (advisory): what the router WOULD pick for the worker, and the
+    # dollars that choice saves vs the cheapest eligible cloud model. All default to a
+    # routing-off, zero-cost row so existing call sites and old rows are unaffected.
+    routed_model: str = ""
+    routed_lab: str = ""
+    routed_is_local: bool = False
+    route_required_tier: int = 0
+    route_reason: str = ""
+    est_cost_usd: float = 0.0
+    est_savings_usd: float = 0.0
 
     def to_row(self) -> dict[str, Any]:
         d = asdict(self)
@@ -86,7 +103,8 @@ class DispatchRecord:
         """Flat, CSV-friendly view (lists -> JSON strings, bools -> 0/1)."""
         d = self.to_row()
         d["added_directives"] = json.dumps(d["added_directives"], ensure_ascii=False)
-        for b in ("fail_closed", "dissent_logged", "escalated", "neckbeard_block"):
+        for b in ("fail_closed", "dissent_logged", "escalated", "neckbeard_block",
+                  "routed_is_local"):
             d[b] = int(bool(d[b]))
         return d
 
