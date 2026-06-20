@@ -78,6 +78,23 @@ class AdapterSeamTest(unittest.TestCase):
         self.assertIn("Confine writes to frontend/.", tasks[1]["goal"])
         self.assertIsNone(h.pre_tool_call(DISPATCH_TOOL, out["args"], tool_call_id="b1"))
 
+    def test_batch_seeds_parallel_coordination_directive(self):
+        # End to end: a batch (>=2 tasks) threads parallel_siblings into each task's meta,
+        # so the gate seeds the advisory coordination directive into EVERY dispatched goal.
+        # A single (non-batch) dispatch is not one of N siblings, so it does not get it.
+        C = "Coordinate by contract; do not read a sibling's in-progress files."
+        h, _ = hdg([verdict_json("pass", []), verdict_json("pass", [])], coordination_directive=C)
+        args = {"tasks": [
+            {"goal": "Build the backend in backend/", "toolsets": ["files"]},
+            {"goal": "Build the frontend in frontend/", "toolsets": ["files"]},
+        ]}
+        tasks = h.tool_request(DISPATCH_TOOL, args, tool_call_id="bc")["args"]["tasks"]
+        self.assertIn(C, tasks[0]["goal"])
+        self.assertIn(C, tasks[1]["goal"])
+        h2, _ = hdg([verdict_json("pass", [])], coordination_directive=C)
+        solo = h2.tool_request(DISPATCH_TOOL, dict(DELEGATE_ARGS), tool_call_id="sc")
+        self.assertNotIn(C, solo["args"][GOAL_ARG])
+
     def test_batch_runs_gate_once_per_task_across_seams(self):
         reviewer = MockProvider(lab="reviewer-lab", model="r",
                                 responses=[verdict_json("pass", ["a"]), verdict_json("pass", ["b"])])

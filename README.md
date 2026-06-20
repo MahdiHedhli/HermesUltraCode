@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-black?style=flat-square)](LICENSE)
 &nbsp;![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)
 &nbsp;![Runtime deps: 0](https://img.shields.io/badge/runtime_deps-0-2ea043?style=flat-square)
-&nbsp;![Tests: 182 passing](https://img.shields.io/badge/tests-182_passing-2ea043?style=flat-square)
+&nbsp;![Tests: 184 passing](https://img.shields.io/badge/tests-184_passing-2ea043?style=flat-square)
 &nbsp;![Hermes plugin + skill](https://img.shields.io/badge/Hermes-plugin_%2B_skill-7c3aed?style=flat-square)
 &nbsp;![Degrades: fail-closed](https://img.shields.io/badge/degrades-fail--closed-e5604d?style=flat-square)
 
@@ -74,7 +74,7 @@ orchestrator base prompt ─▶ [ GATE ] ─▶ dispatched prompt ─▶ worker
   catches the blind spots a same-lineage model waves through. ([more ↓](#cross-lab-review))
 - 🧾 **Audited like evidence** — one immutable, secret-redacted row per dispatch;
   `UPDATE`/`DELETE` blocked at the database; JSON/CSV export.
-- 🪶 **Zero runtime dependencies** — stdlib-only core, **177 offline tests**, the model
+- 🪶 **Zero runtime dependencies** — stdlib-only core, **184 offline tests**, the model
   provider mocked.
 
 ## The eight non-negotiable invariants
@@ -293,6 +293,7 @@ Hermes's own `PluginManager`/`PluginContext`:
 | **Observe** | `register_tool` (`gate_metrics`, `gate_audit_query`, `gate_recent_verdicts`) | the Hermes agent can answer "show me today's gate verdicts" |
 | **Plan** | `register_command('ultracode', …)` — planning is the default; `yolo` bypasses | scoping pass (questions + target dir) before a build; the `scope-first` skill (discoverable via `skills.external_dirs`, see below) makes the agent ask via `clarify` |
 | **Directory** | `Gate.workspace_directive` seeded into every file-writing review | tightens each build to *declare and stay within a target directory* (off via `HERMESULTRACODE_DIRECTORY_DIRECTIVE=0`) |
+| **Coordinate** | `Gate.coordination_directive` seeded into each task of a *parallel batch* (≥2 siblings) | advisory tighten: concurrent subagents coordinate *by contract*, not by reading each other's in-progress files (off via `HERMESULTRACODE_COORDINATION_DIRECTIVE=0`) |
 | **Neckbeard** | `register_skill('neckbeard', …)` + `skills/neckbeard/SKILL.md` | the minimalism ruleset as an installable skill |
 | **Dashboard** | a native Hermes web-dashboard tab (`dashboard/` plugin: manifest + SDK-React bundle + FastAPI `plugin_api.py`) **+** `register_cli_command('ultracode-dashboard', …)` | a tab beside Kanban (zero extra install), or the build-free standalone read API |
 

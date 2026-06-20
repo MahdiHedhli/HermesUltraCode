@@ -72,6 +72,7 @@ class DispatchMeta:
     estimated_cost_usd: float = 0.0
     task_id: str = ""
     description: str = ""
+    parallel_siblings: int = 0   # >0 when this dispatch is one of N concurrent batch tasks
 
     @property
     def effective_file_count(self) -> int:

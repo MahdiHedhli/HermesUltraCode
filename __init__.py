@@ -43,6 +43,18 @@ WORKSPACE_DIRECTIVE = (
     "instruction."
 )
 
+# Advisory tighten seeded into EACH task of a PARALLEL batch dispatch (see
+# Gate.coordination_directive), so concurrent subagents coordinate by contract instead of
+# racing on each other's in-progress files. Never blocks. Phrased restrictively so it
+# survives the tighten-only guard.
+COORDINATION_DIRECTIVE = (
+    "You are one of several subagents running in parallel on this build. Coordinate by "
+    "contract, not by side effects: depend only on an explicitly agreed interface or file "
+    "layout, do not read or rely on a sibling agent's in-progress files, and if you need "
+    "something another component will produce, state the contract you assume rather than "
+    "waiting on their unfinished working tree."
+)
+
 
 def _default_store_path() -> str:
     base = os.environ.get(
@@ -90,6 +102,9 @@ def _build_gate(store):
     # within a target directory (set HERMESULTRACODE_DIRECTORY_DIRECTIVE=0 to disable).
     workspace = ("" if os.environ.get("HERMESULTRACODE_DIRECTORY_DIRECTIVE", "1").lower()
                  in ("0", "false", "no", "off") else WORKSPACE_DIRECTIVE)
+    # Parallel-coordination advisory on batch fan-out (HERMESULTRACODE_COORDINATION_DIRECTIVE=0 off).
+    coordination = ("" if os.environ.get("HERMESULTRACODE_COORDINATION_DIRECTIVE", "1").lower()
+                    in ("0", "false", "no", "off") else COORDINATION_DIRECTIVE)
 
     return Gate(
         reviewer_provider=reviewer,
@@ -99,6 +114,7 @@ def _build_gate(store):
         reviewer_timeout_s=float(os.environ.get("HERMESULTRACODE_REVIEWER_TIMEOUT_S", "30")),
         tiering_config=TieringConfig(),
         workspace_directive=workspace,
+        coordination_directive=coordination,
     )
 
 

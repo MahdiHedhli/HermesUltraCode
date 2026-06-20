@@ -192,6 +192,7 @@ class Gate:
         tiering_config: TieringConfig | None = None,
         cheap_reviewer_provider: Provider | None = None,
         workspace_directive: str | None = None,
+        coordination_directive: str | None = None,
     ) -> None:
         self.reviewer = reviewer_provider
         self.orchestrator = orchestrator_provider
@@ -208,12 +209,21 @@ class Gate:
         # explicitly-unconfigured gate; it still flows through validate_tighten like any
         # other directive, so it is proven append-only and grant-free.
         self.workspace_directive = (workspace_directive or "").strip() or None
+        # A second optional policy tighten, ADVISORY only: seeded into each task of a
+        # PARALLEL batch dispatch so concurrent subagents coordinate by contract instead of
+        # racing on each other's in-progress files. Never blocks (it's just an appended
+        # directive that flows through validate_tighten); opt-in (default None).
+        self.coordination_directive = (coordination_directive or "").strip() or None
 
     def _seed_directives(self, meta: DispatchMeta) -> tuple[str, ...]:
         """Deterministic policy directives prepended to a review's tightening."""
+        seeds: list[str] = []
         if self.workspace_directive and not meta.read_only:
-            return (self.workspace_directive,)
-        return ()
+            seeds.append(self.workspace_directive)
+        if (self.coordination_directive and not meta.read_only
+                and getattr(meta, "parallel_siblings", 0) >= 2):
+            seeds.append(self.coordination_directive)
+        return tuple(seeds)
 
     # -- public entry point --------------------------------------------------
 

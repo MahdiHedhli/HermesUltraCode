@@ -204,19 +204,20 @@ class HermesDispatchGate:
         """Review/tighten EACH task in a batch dispatch independently, keyed by
         (tool_call_id, index) so ``tool_request`` and ``pre_tool_call`` reuse the same
         per-task decision (the gate runs once per task across both seams)."""
+        n = len(tasks)
         out = []
         for i, t in enumerate(tasks):
             src = t if isinstance(t, dict) else {GOAL_ARG: str(t)}
             key = f"{tool_call_id}:{i}" if tool_call_id else f"{_args_key(src)}:{i}"
-            out.append(self._decide_one(key, src))
+            out.append(self._decide_one(key, src, parallel_siblings=n))
         return out
 
-    def _decide_one(self, key: str, src: dict) -> DispatchResult:
+    def _decide_one(self, key: str, src: dict, parallel_siblings: int = 0) -> DispatchResult:
         cached = self._cache.get(key)
         if cached is not None:
             self._cache.move_to_end(key)
             return cached
-        base, meta = self._extract(src)
+        base, meta = self._extract(src, parallel_siblings)
         try:
             result = self.gate.review_and_dispatch(base, meta)  # never raises by design
         except Exception as exc:  # noqa: BLE001 - last-resort fail-closed guard
@@ -228,7 +229,7 @@ class HermesDispatchGate:
             self._cache.popitem(last=False)
         return result
 
-    def _extract(self, args: dict) -> tuple[str, DispatchMeta]:
+    def _extract(self, args: dict, parallel_siblings: int = 0) -> tuple[str, DispatchMeta]:
         raw_goal = str(args.get(GOAL_ARG) or "")
         # Idempotency: if a prior pass already appended directives (e.g. tool_request
         # ran and pre_tool_call now sees the rewritten goal), recover the ORIGINAL base
@@ -238,10 +239,10 @@ class HermesDispatchGate:
         toolsets = args.get(TOOLSETS_ARG) or []
         if isinstance(toolsets, str):
             toolsets = [toolsets]
-        return base, _meta_from(toolsets, context)
+        return base, _meta_from(toolsets, context, parallel_siblings)
 
 
-def _meta_from(toolsets, context: str) -> DispatchMeta:
+def _meta_from(toolsets, context: str, parallel_siblings: int = 0) -> DispatchMeta:
     """Approximate blast radius from the subagent's toolsets (paths are unknown until
     the subagent runs). Read-only -> trivial; merge/deploy -> merge_adjacent;
     git/infra/terminal -> elevated (via a synthetic protected path); else standard."""
@@ -259,6 +260,7 @@ def _meta_from(toolsets, context: str) -> DispatchMeta:
         file_count=(0 if read_only else 2),
         read_only=read_only,
         description=context[:500],
+        parallel_siblings=parallel_siblings,
     )
 
 

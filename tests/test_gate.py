@@ -38,6 +38,25 @@ class GateEndToEndTest(unittest.TestCase):
         self.assertTrue(res2.released)
         self.assertNotIn(D, res2.dispatched_prompt or "")             # read-only: no directive
 
+    def test_coordination_directive_seeds_parallel_batch_only(self):
+        # The advisory parallel-coordination tighten is seeded ONLY when a non-read-only
+        # dispatch is one of >=2 concurrent batch siblings. A single dispatch or a read-only
+        # one never gets it; it is grant-free, so it survives the tighten-only guard.
+        C = "Coordinate by contract; do not read a sibling agent's in-progress files."
+        gate = make_gate(reviewer_responses=[verdict_json("pass", [])] * 3,
+                         coordination_directive=C)
+        batch = gate.review_and_dispatch(BASE, standard_meta(parallel_siblings=3))   # parallel fan-out
+        self.assertTrue(batch.released)
+        self.assertIn(C, batch.dispatched_prompt)
+        self.assertTrue(batch.dispatched_prompt.startswith(BASE))                    # base verbatim
+        solo = gate.review_and_dispatch(BASE, standard_meta(parallel_siblings=0))    # single dispatch
+        self.assertTrue(solo.released)
+        self.assertNotIn(C, solo.dispatched_prompt or "")
+        ro = gate.review_and_dispatch(
+            BASE, DispatchMeta(read_only=True, file_count=0, parallel_siblings=3))   # read-only batch
+        self.assertTrue(ro.released)
+        self.assertNotIn(C, ro.dispatched_prompt or "")
+
     def test_revise_appends_then_dispatches_on_pass(self):
         gate = make_gate(
             reviewer_responses=[
