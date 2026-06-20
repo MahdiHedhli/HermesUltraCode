@@ -11,16 +11,19 @@
 &nbsp;![Degrades: fail-closed](https://img.shields.io/badge/degrades-fail--closed-e5604d?style=flat-square)
 
 <p align="center">
-  <img src="docs/dashboard.png" alt="HermesUltraCode dashboard — the immutable audit trail with blast-radius tier badges, decision badges, and the fail-closed counter" width="860">
+  <img src="docs/dashboard-live.png" alt="Live command center — the orchestrator and three subagents in parallel, each gate-reviewed with its tightening directive" width="900">
 </p>
-<p align="center"><sub>The read-only dashboard — immutable audit trail with blast-radius tier badges, per-dispatch verdicts, and a <b>fail-closed counter</b> so silent degradation is <i>visible</i>, not hidden.</sub></p>
+<p align="center"><sub><b>Live command center</b> during a real multi-agent build — the orchestrator + <b>three subagents running in parallel</b>, each with its task, tool log, and <b>the reviewer's tightening directive</b> (every one gate-reviewed before it spawned).</sub></p>
 
 <p align="center">
-  <img src="docs/dashboard-live.png" alt="Live command center — orchestrator, subagents with their tasks and tool logs, and the reviewer's tightening directives per agent" width="420">
-  &nbsp;
-  <img src="docs/dashboard-plan.png" alt="Plan window — the orchestrator's live build stages: done, active, to do" width="420">
+  <img src="docs/dashboard-plan.png" alt="Plan window — the orchestrator's live build stages: done, active, to do" width="860">
 </p>
-<p align="center"><sub><b>Live</b> command-center during a real multi-agent build (left) — the orchestrator + <b>three subagents running in parallel</b>, each with its task, tool log, and <b>the reviewer's tightening directive</b> (every one gate-reviewed before it spawned); and the <b>Plan</b> window (right) — the orchestrator's live stages, <i>done · active · to&nbsp;do</i>.</sub></p>
+<p align="center"><sub>The <b>Plan</b> window — the orchestrator's live build stages, <i>done · active · to&nbsp;do</i>, read live from its <code>todo</code> tool.</sub></p>
+
+<p align="center">
+  <img src="docs/dashboard.png" alt="Immutable audit trail with blast-radius tier badges, decision badges, and the fail-closed counter" width="860">
+</p>
+<p align="center"><sub>The immutable <b>audit trail</b> — blast-radius tier badges, per-dispatch verdicts, and a <b>fail-closed counter</b> so silent degradation is <i>visible</i>, not hidden.</sub></p>
 
 A self-contained **pre-dispatch prompt gate**, **neckbeard generation discipline**, and
 **observability dashboard** layered onto an existing
@@ -51,7 +54,7 @@ orchestrator base prompt ─▶ [ GATE ] ─▶ dispatched prompt ─▶ worker
   catches the blind spots a same-lineage model waves through. ([more ↓](#cross-lab-review))
 - 🧾 **Audited like evidence** — one immutable, secret-redacted row per dispatch;
   `UPDATE`/`DELETE` blocked at the database; JSON/CSV export.
-- 🪶 **Zero runtime dependencies** — stdlib-only core, **155 offline tests**, the model
+- 🪶 **Zero runtime dependencies** — stdlib-only core, **177 offline tests**, the model
   provider mocked.
 
 ## The eight non-negotiable invariants
@@ -260,8 +263,8 @@ Hermes's own `PluginManager`/`PluginContext`:
 
 | Seam | Hermes mechanism | Gate behavior |
 |---|---|---|
-| **Tighten** | `tool_request` middleware on `delegate_task` (runs first; rewrites args) | rewrites the subagent's `goal` → base verbatim + appended directives |
-| **Block** | `pre_tool_call` hook on `delegate_task` (returns `{"action":"block"}`) | refuses a dispatch the gate didn't release; **fail-closed if unconfigured** |
+| **Tighten** | `tool_request` middleware on `delegate_task` (runs first; rewrites args) | rewrites the subagent's `goal` → base verbatim + appended directives. **Batch-aware**: a parallel `delegate_task(tasks=[…])` is reviewed/tightened *per task*, so fan-out isn't degraded to sequential |
+| **Block** | `pre_tool_call` hook on `delegate_task` (returns `{"action":"block"}`) | refuses a dispatch the gate didn't release; **fail-closed if unconfigured** (per task in a batch) |
 | **Observe** | `register_tool` (`gate_metrics`, `gate_audit_query`, `gate_recent_verdicts`) | the Hermes agent can answer "show me today's gate verdicts" |
 | **Plan** | `register_command('ultracode', …)` — planning is the default; `yolo` bypasses | scoping pass (questions + target dir) before a build; the `scope-first` skill (discoverable via `skills.external_dirs`, see below) makes the agent ask via `clarify` |
 | **Directory** | `Gate.workspace_directive` seeded into every file-writing review | tightens each build to *declare and stay within a target directory* (off via `HERMESULTRACODE_DIRECTORY_DIRECTIVE=0`) |
@@ -326,13 +329,15 @@ skills:
   external_dirs: ['/Users/<you>/.hermes/plugins/hermesultracode/skills']
 ```
 
-This adds the skills to the index (and as `/scope-first` / `/neckbeard` commands) without
-touching the curated `~/.hermes/skills/` tree. Restart Hermes to pick it up. Alternatively,
-install a skill into the curated tree directly:
+This adds **both skills** to the index (and as `/scope-first` / `/neckbeard` commands)
+without touching the curated `~/.hermes/skills/` tree. Restart Hermes to pick it up.
+Alternatively, install or publish either skill into the curated tree / skills hub directly:
 
 ```bash
-hermes skills install MahdiHedhli/HermesUltraCode/skills/neckbeard   # or:
-hermes skills publish skills/neckbeard --to github --repo <owner/skills>
+hermes skills install MahdiHedhli/HermesUltraCode/skills/scope-first   # plan-first discipline
+hermes skills install MahdiHedhli/HermesUltraCode/skills/neckbeard     # minimalism ruleset
+hermes skills publish skills/scope-first --to github --repo <owner/skills>   # to the skills hub
+hermes skills publish skills/neckbeard   --to github --repo <owner/skills>
 ```
 
 > `adapters/hermes_hook.py` (the `HermesDispatchGate` mapping) and `__init__.py` (the
@@ -376,10 +381,16 @@ path), and SQLite for the audit store (no new dependency).
 > dispatches** (configure a reviewer, then run a `delegate_task`). If 9120 is taken, use
 > `hermes ultracode-dashboard --port 9123`.
 
-- **Live** — *real subagent execution*: active subagents (goal, status, last tool, tool
-  count, elapsed), a tool-by-tool activity feed, and completed subagents with their output
-  summary. Fed by Hermes's `subagent_start` / `post_tool_call` / `subagent_stop` hooks plus
-  the in-process `list_active_subagents()` registry (secret-redacted, ephemeral).
+- **Live** — a *command center* for the running build: an **orchestrator** card (its own
+  tool activity), a grid of **agent cards** — each active subagent's goal, status, last
+  tool, tool count, elapsed, a per-agent **tool log**, and **the reviewer's tightening
+  directives for that agent** (the gate's influence, joined from the audit store) — an
+  activity feed tagging orchestrator vs agent, and completed-agent output. A single batched
+  `delegate_task` fans out into multiple agents here, each gate-reviewed independently. Fed
+  by Hermes's `subagent_start` / `post_tool_call` / `subagent_stop` hooks + the in-process
+  `list_active_subagents()` registry (secret-redacted, ephemeral).
+- **Plan** — the orchestrator's **live build stages** (done · active · to&nbsp;do) with a
+  progress bar, captured by observing its `todo` tool writes.
 - **Queue** — pending dispatches with blast-radius tier badges.
 - **Gate panel** (per dispatch) — verdict, round count, the appended directives (the
   actual "tighten"), rationale, reviewer model, final decision.
