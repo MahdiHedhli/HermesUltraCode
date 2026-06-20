@@ -11,14 +11,14 @@
 &nbsp;![Degrades: fail-closed](https://img.shields.io/badge/degrades-fail--closed-e5604d?style=flat-square)
 
 <p align="center">
-  <img src="docs/dashboard-live.png" alt="Live command center — the orchestrator and three subagents in parallel, each gate-reviewed with its tightening directive" width="900">
+  <img src="docs/dashboard-tab-live.png" alt="A native UltraCode tab in the Hermes web dashboard — orchestrator + parallel subagents, each gate-reviewed with its tightening directive" width="900">
 </p>
-<p align="center"><sub><b>Live command center</b> during a real multi-agent build — the orchestrator + <b>three subagents running in parallel</b>, each with its task, tool log, and <b>the reviewer's tightening directive</b> (every one gate-reviewed before it spawned).</sub></p>
+<p align="center"><sub>A <b>native tab in the Hermes web dashboard</b> (sidebar, right under Kanban) during a real multi-agent build — the orchestrator + <b>subagents in parallel</b>, each with its task, tool log, and <b>the reviewer's tightening directive</b>. Ships <i>inside</i> the plugin — zero extra install.</sub></p>
 
 <p align="center">
-  <img src="docs/dashboard-plan.png" alt="Plan window — the orchestrator's live build stages: done, active, to do" width="860">
+  <img src="docs/dashboard-tab-plan.png" alt="The Plan sub-tab — the orchestrator's live build stages: done, active, to do" width="860">
 </p>
-<p align="center"><sub>The <b>Plan</b> window — the orchestrator's live build stages, <i>done · active · to&nbsp;do</i>, read live from its <code>todo</code> tool.</sub></p>
+<p align="center"><sub>The <b>Plan</b> sub-tab — the orchestrator's live build stages (<i>done · active · to&nbsp;do</i>), read from its <code>todo</code> tool. The same views are also a <b>build-free standalone dashboard</b> (<code>hermes ultracode-dashboard</code>) when you want it decoupled.</sub></p>
 
 <p align="center">
   <img src="docs/dashboard.png" alt="Immutable audit trail with blast-radius tier badges, decision badges, and the fail-closed counter" width="860">
@@ -195,8 +195,13 @@ Then, inside a Hermes session:
 /ultracode status     # gate state + a clickable dashboard link (auto-starts on loopback)
 ```
 
-The dashboard also auto-starts on session load and surfaces a one-click
-`http://127.0.0.1:9120/?token=…` link (the page reads `?token=` and connects itself).
+**The dashboard needs zero extra setup — it surfaces three ways:**
+- a **native tab in the Hermes web dashboard** (`hermes dashboard`) — under *Plugins*, right beside
+  Kanban. It ships *inside* the plugin (`dashboard/`), so `hermes plugins install` is all it takes;
+- an **auto-started standalone** on session load — a one-click `http://127.0.0.1:9120/?token=…` link
+  (the page reads `?token=` and connects itself);
+- `hermes ultracode-dashboard` to launch the standalone manually.
+
 Update later with `hermes plugins update hermesultracode` + a restart.
 
 **Local / standalone (dev)** — no Hermes needed, provider mocked:
@@ -269,7 +274,7 @@ Hermes's own `PluginManager`/`PluginContext`:
 | **Plan** | `register_command('ultracode', …)` — planning is the default; `yolo` bypasses | scoping pass (questions + target dir) before a build; the `scope-first` skill (discoverable via `skills.external_dirs`, see below) makes the agent ask via `clarify` |
 | **Directory** | `Gate.workspace_directive` seeded into every file-writing review | tightens each build to *declare and stay within a target directory* (off via `HERMESULTRACODE_DIRECTORY_DIRECTIVE=0`) |
 | **Neckbeard** | `register_skill('neckbeard', …)` + `skills/neckbeard/SKILL.md` | the minimalism ruleset as an installable skill |
-| **Dashboard** | `register_cli_command('ultracode-dashboard', …)` | `hermes ultracode-dashboard` launches the read API |
+| **Dashboard** | a native Hermes web-dashboard tab (`dashboard/` plugin: manifest + SDK-React bundle + FastAPI `plugin_api.py`) **+** `register_cli_command('ultracode-dashboard', …)` | a tab beside Kanban (zero extra install), or the build-free standalone read API |
 
 Both seams receive the same `tool_call_id`, so the gate (a reviewer model call) runs
 **once** per dispatch and both seams read the cached decision. `register()` never raises
@@ -372,16 +377,25 @@ API (no Flask/FastAPI), a server-rendered dashboard (no React build step — see
 [`web/README.md`](web/README.md) for the documented React 19 + Vite + Tailwind upgrade
 path), and SQLite for the audit store (no new dependency).
 
-## Dashboard views (`web/`, served by `server/read_api.py`)
+## Dashboard views
 
-> **Launch it with `hermes ultracode-dashboard`** (or `python -m server`) — **not**
-> `hermes dashboard`. That bare command is *Hermes's own* React UI (default port 9119),
-> which needs `cd web && npm run build`; pointing it at 9120 gives
-> `{"error":"Frontend not built…"}`. UltraCode's dashboard is **server-rendered static
-> HTML — no build step**. It defaults to `http://127.0.0.1:9120`, prints a session token to
-> paste in, and is read-only over the audit store — so it's **empty until the gate records
-> dispatches** (configure a reviewer, then run a `delegate_task`). If 9120 is taken, use
-> `hermes ultracode-dashboard --port 9123`.
+The same views ship **two ways** — pick the integrated one or the decoupled one:
+
+1. **Native tab in the Hermes web dashboard** (`hermes dashboard`, the React UI) — `dashboard/`.
+   UltraCode is a first-class dashboard plugin (`manifest.json` → a tab at `/ultracode`,
+   `position: after:skills`, **beside Kanban**) — the same mechanism Kanban itself uses. The
+   frontend (`dashboard/dist/index.js`) is **hand-authored plain JS using the host's React via the
+   plugin SDK — no npm build on our side**; the backend (`dashboard/plugin_api.py`) is a thin FastAPI
+   router mounted at `/api/plugins/hermesultracode/`, reusing the same `server/views` over the shared
+   store, behind the dashboard's own session auth. Because the web dashboard runs in a *different*
+   process than the agent, the live agent/plan view is mirrored to SQLite (a `progress_snapshot` row,
+   redacted on write) so the tab can read it. **It ships inside the plugin — nothing extra to install.**
+2. **Standalone** (`hermes ultracode-dashboard`, or `python -m server`) — **server-rendered static
+   HTML, no build step**, in-process, fully decoupled. Loopback + ephemeral token, defaults to
+   `http://127.0.0.1:9120` (use `--port 9123` if taken). Auto-starts on session load.
+
+Both are read-only over the audit store — **empty until the gate records dispatches** (configure a
+reviewer, then run a `delegate_task`). The views:
 
 - **Live** — a *command center* for the running build: an **orchestrator** card (its own
   tool activity), a grid of **agent cards** — each active subagent's goal, status, last
