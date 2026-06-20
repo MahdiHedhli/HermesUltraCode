@@ -20,7 +20,7 @@
   &nbsp;
   <img src="docs/dashboard-plan.png" alt="Plan window — the orchestrator's live build stages: done, active, to do" width="420">
 </p>
-<p align="center"><sub><b>Live</b> command-center during a multi-agent build (left) — the orchestrator, each subagent with its task &amp; tool log, and <b>the reviewer's tightening directives per agent</b>; and the <b>Plan</b> window (right) — the orchestrator's stages, <i>done · active · to&nbsp;do</i>.</sub></p>
+<p align="center"><sub><b>Live</b> command-center during a real multi-agent build (left) — the orchestrator + <b>three subagents running in parallel</b>, each with its task, tool log, and <b>the reviewer's tightening directive</b> (every one gate-reviewed before it spawned); and the <b>Plan</b> window (right) — the orchestrator's live stages, <i>done · active · to&nbsp;do</i>.</sub></p>
 
 A self-contained **pre-dispatch prompt gate**, **neckbeard generation discipline**, and
 **observability dashboard** layered onto an existing
