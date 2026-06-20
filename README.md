@@ -331,13 +331,15 @@ skills:
 
 This adds **both skills** to the index (and as `/scope-first` / `/neckbeard` commands)
 without touching the curated `~/.hermes/skills/` tree. Restart Hermes to pick it up.
-Alternatively, install or publish either skill into the curated tree / skills hub directly:
+
+Both skills are also published to the **Hermes skill hub** at
+[`MahdiHedhli/skills`](https://github.com/MahdiHedhli/skills) — tap it and install from the hub:
 
 ```bash
-hermes skills install MahdiHedhli/HermesUltraCode/skills/scope-first   # plan-first discipline
-hermes skills install MahdiHedhli/HermesUltraCode/skills/neckbeard     # minimalism ruleset
-hermes skills publish skills/scope-first --to github --repo <owner/skills>   # to the skills hub
-hermes skills publish skills/neckbeard   --to github --repo <owner/skills>
+hermes skills tap add MahdiHedhli/skills          # add to the hub's browse/search
+hermes skills search scope-first
+hermes skills install MahdiHedhli/skills/scope-first   # plan-first discipline
+hermes skills install MahdiHedhli/skills/neckbeard     # minimalism ruleset
 ```
 
 > `adapters/hermes_hook.py` (the `HermesDispatchGate` mapping) and `__init__.py` (the
