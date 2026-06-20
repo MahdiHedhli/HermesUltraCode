@@ -10,6 +10,8 @@
   padding: 5px 12px; cursor: pointer; color: inherit; font: inherit; }
 .uc-tab.uc-active { background: rgba(110,168,254,.18); border-color: rgba(110,168,254,.5); }
 .uc-h3 { font-size: 13px; opacity: .7; margin: 16px 0 8px; font-weight: 600; }
+.uc-err { background: rgba(229,96,77,.14); border: 1px solid rgba(229,96,77,.5); color: #d6432f;
+  padding: 8px 12px; border-radius: 8px; margin: 8px 0; font-size: 13px; }
 
 .uc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
 .uc-card { border: 1px solid rgba(128,128,128,.28); background: rgba(128,128,128,.05);

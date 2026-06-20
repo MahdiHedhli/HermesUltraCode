@@ -13,7 +13,8 @@
   var e = React.createElement;
   var useState = SDK.hooks.useState;
   var useEffect = SDK.hooks.useEffect;
-  var fetchJSON = SDK.fetchJSON || function (u) { return fetch(u).then(function (r) { return r.json(); }); };
+  // Require the SDK's authenticated fetch — never fall back to an unauthenticated request.
+  var fetchJSON = (typeof SDK.fetchJSON === "function") ? SDK.fetchJSON : null;
   var API = "/api/plugins/hermesultracode";
 
   function cls(s) { return { className: s }; }
@@ -36,7 +37,7 @@
 
   function gateBox(g) {
     if (!g) return null;
-    var dirs = g.added_directives || [];
+    var dirs = (g && Array.isArray(g.added_directives)) ? g.added_directives : [];
     return e("div", cls("uc-gate"),
       e("div", cls("uc-gate-h"), "reviewer ", badge(g.tier, "tier"), " " + (g.verdict || "") + " → " + (g.decision || "")),
       dirs.length
@@ -111,7 +112,7 @@
     var head = ["Time", "Tier", "Verdict", "Decision", "Rounds", "Fail-closed"];
     return e("table", cls("uc-table"),
       e("thead", null, e("tr", null, head.map(function (t, i) { return e("th", { key: i }, t); }))),
-      e("tbody", null, (rows && rows.length)
+      e("tbody", null, (Array.isArray(rows) && rows.length)
         ? rows.map(function (r, i) {
             return e("tr", { key: i },
               e("td", null, r.ts), e("td", null, badge(r.tier, "tier")), e("td", null, r.verdict),
@@ -121,28 +122,41 @@
         : e("tr", null, e("td", { colSpan: 6, className: "uc-muted" }, "no dispatches yet — configure a reviewer and run a delegate_task"))));
   }
 
+  function hashView() {
+    var h = (typeof location !== "undefined" ? location.hash || "" : "").replace(/^#/, "");
+    return (h === "plan" || h === "audit") ? h : "live";
+  }
+
   function UltraCode() {
-    var t = useState("live"), view = t[0], setView = t[1];
+    var t = useState(hashView()), view = t[0], setView = t[1];
     var dl = useState(null), live = dl[0], setLive = dl[1];
     var al = useState(null), aud = al[0], setAud = al[1];
+    var er = useState(null), err = er[0], setErr = er[1];
     useEffect(function () {
+      if (!fetchJSON) { setErr("Dashboard SDK unavailable — no authenticated fetch."); return; }
       var alive = true;
       function load() {
-        fetchJSON(API + "/live").then(function (r) { if (alive) setLive(r); }).catch(function () {});
-        if (view === "audit") fetchJSON(API + "/audit?limit=60").then(function (r) { if (alive) setAud((r && r.rows) || []); }).catch(function () {});
+        fetchJSON(API + "/live")
+          .then(function (r) { if (alive) { setLive(r); setErr(null); } })
+          .catch(function () { if (alive) setErr("Can't reach the UltraCode backend (/api/plugins/hermesultracode)."); });
+        if (view === "audit") {
+          fetchJSON(API + "/audit?limit=60").then(function (r) { if (alive) setAud((r && r.rows) || []); }).catch(function () {});
+        }
       }
       load();
       var id = setInterval(load, 4000);
       return function () { alive = false; clearInterval(id); };
     }, [view]);
+    function go(v) { setView(v); try { location.hash = v; } catch (e) { /* no-op */ } }
     var d = live || {};
     var tabs = [["live", "Live"], ["plan", "Plan"], ["audit", "Audit"]];
     return e("div", cls("uc-root"),
       e("div", cls("uc-head"),
         e("div", cls("uc-title"), "HermesUltraCode ", e("span", cls("uc-muted"), "· pre-dispatch gate")),
         e("div", cls("uc-tabs"), tabs.map(function (x) {
-          return e("button", { key: x[0], className: "uc-tab" + (view === x[0] ? " uc-active" : ""), onClick: function () { setView(x[0]); } }, x[1]);
+          return e("button", { key: x[0], className: "uc-tab" + (view === x[0] ? " uc-active" : ""), onClick: function () { go(x[0]); } }, x[1]);
         }))),
+      err ? e("div", cls("uc-err"), err) : null,
       view === "live" ? liveView(d) : view === "plan" ? planView(d) : auditView(aud));
   }
 

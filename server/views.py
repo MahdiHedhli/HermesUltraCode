@@ -38,8 +38,9 @@ def record_summary(r: DispatchRecord) -> dict[str, Any]:
 
 def gate_panel(r: DispatchRecord) -> dict[str, Any]:
     """Per-dispatch gate panel: verdict, rounds, the appended directives (the actual
-    'tighten'), rationale, reviewer model, and the final decision."""
-    return {
+    'tighten'), rationale, reviewer model, and the final decision. The prompt fields are
+    already redacted on write; ``redact_obj`` here is defense-in-depth on the read path."""
+    return redact_obj({
         **record_summary(r),
         "base_prompt": r.base_prompt,
         "added_directives": list(r.added_directives),
@@ -47,7 +48,7 @@ def gate_panel(r: DispatchRecord) -> dict[str, Any]:
         "rationale": r.rationale,
         "scope_assessment": r.scope_assessment,
         "fail_closed_reason": r.fail_closed_reason,
-    }
+    })
 
 
 def default_live_source(store: AuditStore) -> dict[str, Any]:
