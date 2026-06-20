@@ -91,19 +91,23 @@ def make_progress_live_source(progress) -> LiveSource:
     their output. Everything is secret-redacted before it leaves the process."""
     import time as _time
 
+    from server.progress import PLAN_STATE, plan_progress
+
     def src(store: AuditStore) -> dict[str, Any]:
         snap = progress.snapshot()
         active = list(snap["active"])
-        # Enrich/authoritative-ify the active list from Hermes's registry if available.
+        # Authoritative active list from Hermes's registry (keep our per-agent tool logs).
         try:
             from tools.delegate_tool import list_active_subagents  # type: ignore
 
             now = _time.time()
+            log_by_id = {a["subagent_id"]: a.get("log", []) for a in snap["active"]}
             reg = []
             for r in list_active_subagents():
                 started = r.get("started_at") or now
+                sid = r.get("subagent_id", "")
                 reg.append({
-                    "subagent_id": r.get("subagent_id", ""),
+                    "subagent_id": sid,
                     "goal": r.get("goal", "") or "",
                     "role": r.get("role") or ("orchestrator" if r.get("depth") else "leaf"),
                     "depth": r.get("depth", 0),
@@ -112,18 +116,44 @@ def make_progress_live_source(progress) -> LiveSource:
                     "last_tool": r.get("last_tool", ""),
                     "tool_count": r.get("tool_count", 0),
                     "elapsed_s": round(now - started, 1) if isinstance(started, (int, float)) else None,
+                    "log": log_by_id.get(sid, []),
                 })
             if reg:
                 active = reg
         except Exception:  # noqa: BLE001 - registry only exists in a live Hermes process
             pass
 
+        # Reviewer impact: link each active agent to the gate decision that shaped its task
+        # (base goal -> appended directives), so the dashboard shows the reviewer's influence.
+        recent = store.query(AuditFilter(limit=40))
+
+        def gate_for(goal: str):
+            g = goal or ""
+            match = None
+            for r in recent:  # ascending -> the last match is the newest
+                bp = (r.base_prompt or "").strip()
+                if bp and (bp[:60] in g or g[:60] in bp):
+                    match = r
+            if match is None:
+                return None
+            return {"id": match.id, "tier": match.tier, "verdict": match.verdict,
+                    "decision": match.decision, "rationale": match.rationale,
+                    "added_directives": list(match.added_directives)}
+
+        for a in active:
+            a["gate"] = gate_for(a.get("goal", ""))
+
+        plan = snap["plan"]
+        plan_items = [{**it, "state": PLAN_STATE.get((it.get("status") or "").lower(), "todo")}
+                      for it in plan["items"]]
         recent_release = store.query(AuditFilter(limit=1))
         return redact_obj({
-            "orchestrator": {"status": "online", "backend": "hermes-orchestrator"},
+            "orchestrator": {**snap["orchestrator"], "status": "online", "backend": "hermes-orchestrator"},
             "active": active,
             "feed": snap["feed"],
             "completed": snap["completed"],
+            "plan": {"items": plan_items, "updated_at": plan["updated_at"],
+                     "source": plan["source"], "progress": plan_progress(plan["items"])},
             "last_gate_decision": record_summary(recent_release[-1]) if recent_release else None,
         })
 

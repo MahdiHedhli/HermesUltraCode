@@ -46,23 +46,60 @@
   }
 
   // ---- views ----
+  function logHtml(log) {
+    if (!log || !log.length) return "";
+    return `<div class="agent-log">` + log.slice(0, 8).map((e) =>
+      `<span class="logitem ${/err|fail|block|timeout/.test(String(e.status).toLowerCase()) ? "bad" : ""}"
+        title="${esc(e.tool)} · ${esc(e.status || "")} · ${esc(e.duration_ms || 0)}ms"><code>${esc(e.tool)}</code></span>`
+    ).join("") + `</div>`;
+  }
+  function gateHtml(g) {
+    if (!g) return "";
+    const dirs = g.added_directives || [];
+    return `<div class="agent-gate">
+      <span class="gate-tag">reviewer ${tierBadge(g.tier)} ${esc(g.verdict)} → ${decisionBadge(g.decision)}</span>
+      ${dirs.length
+        ? `<ul class="dir-list">${dirs.map((x) => `<li>＋ ${esc(x)}</li>`).join("")}</ul>`
+        : `<div class="muted" style="margin-top:4px">no tightening — passed clean (no-op)</div>`}
+    </div>`;
+  }
+  function agentCardHtml(a) {
+    return `<div class="agent-card">
+      <div class="agent-h">
+        <span class="agent-id"><code>${esc((a.subagent_id || "").slice(0, 8))}</code>
+          <span class="role">${esc(a.role || "leaf")}${a.depth ? " ·d" + esc(a.depth) : ""}</span></span>
+        ${statusBadge(a.status)}</div>
+      <div class="agent-goal">${esc(a.goal || "(no goal)")}</div>
+      <div class="agent-meta"><span>last <code>${esc(a.last_tool || "—")}</code></span>
+        <span>${esc(a.tool_count || 0)} tools</span>
+        <span>${a.elapsed_s != null ? esc(a.elapsed_s) + "s" : "—"}</span></div>
+      ${logHtml(a.log)}
+      ${gateHtml(a.gate)}
+    </div>`;
+  }
+  function orchCardHtml(o) {
+    return `<div class="agent-h">
+        <span class="agent-id">🧭 Orchestrator <span class="role">${esc(o.backend || "")}</span></span>
+        <span class="pill ${o.active ? "pill-ok" : "pill-warn"}">${o.active ? "working" : "idle"}</span></div>
+      <div class="agent-meta"><span>last <code>${esc(o.last_tool || "—")}</code></span>
+        <span>${esc(o.tool_count || 0)} tools</span>
+        <span>${o.elapsed_s != null ? esc(o.elapsed_s) + "s" : "—"}</span></div>
+      ${logHtml(o.log)}`;
+  }
+
   async function loadLive() {
     const d = await api("/api/live");
-    $("#live-active tbody").innerHTML = (d.active || []).map((s) =>
-      `<tr><td>${esc(s.goal || "(no goal)")}</td>
-       <td>${esc(s.role || "")}${s.depth ? " ·d" + esc(s.depth) : ""}</td>
-       <td>${statusBadge(s.status)}</td><td><code>${esc(s.last_tool || "—")}</code></td>
-       <td>${esc(s.tool_count == null ? 0 : s.tool_count)}</td>
-       <td>${s.elapsed_s != null ? esc(s.elapsed_s) + "s" : "—"}</td></tr>`
-    ).join("") || `<tr><td colspan="6" class="muted">no active subagents — start one with <code>/ultracode &lt;task&gt;</code></td></tr>`;
-
+    $("#orch-card").innerHTML = orchCardHtml(d.orchestrator || {});
+    $("#live-agents").innerHTML = (d.active || []).map(agentCardHtml).join("")
+      || `<div class="muted" style="padding:10px">No active subagents yet — the orchestrator is working solo or planning. A multi-component build fans out here, each agent gate-reviewed.</div>`;
     $("#live-feed tbody").innerHTML = (d.feed || []).map((e) =>
       `<tr><td>${esc(fmtTime(e.ts))}</td>
-       <td title="${esc(e.goal || "")}"><code>${esc((e.subagent_id || "").slice(0, 8))}</code></td>
+       <td>${e.subagent_id === "orchestrator"
+            ? '<span class="who-orch">🧭 orchestrator</span>'
+            : '<code title="' + esc(e.goal || "") + '">' + esc((e.subagent_id || "").slice(0, 8)) + "</code>"}</td>
        <td><code>${esc(e.tool)}</code></td><td>${statusBadge(e.status)}</td>
        <td>${esc(e.duration_ms || 0)}</td></tr>`
     ).join("") || `<tr><td colspan="5" class="muted">no tool activity yet</td></tr>`;
-
     $("#live-completed").innerHTML = (d.completed || []).map((c) =>
       `<div class="card" style="min-width:280px;max-width:520px">
          <div class="card-h">${statusBadge(c.status)} · ${esc(c.tool_count || 0)} tools · ${esc(Math.round((c.duration_ms || 0) / 1000))}s</div>
@@ -70,6 +107,26 @@
          <div class="muted" style="margin-top:6px;white-space:pre-wrap">${esc((c.summary || "(no summary)").slice(0, 600))}</div></div>
        </div>`
     ).join("") || `<em class="muted">none yet</em>`;
+  }
+
+  async function loadPlan() {
+    const d = await api("/api/live");
+    const plan = d.plan || { items: [], progress: {} };
+    const p = plan.progress || { total: 0, done: 0, active: 0, todo: 0, pct: 0 };
+    $("#plan-head").innerHTML = p.total
+      ? `<div class="plan-bar"><div class="plan-bar-fill" style="width:${p.pct}%"></div></div>
+         <div class="plan-counts"><b>${p.pct}% complete</b>
+           <span class="badge badge-ok">${p.done} done</span>
+           <span class="badge badge-standard">${p.active} active</span>
+           <span class="badge badge-trivial">${p.todo} to do</span>
+           <span class="muted">· source: ${esc(plan.source || "todo")}</span></div>`
+      : `<div class="muted">No plan yet. The orchestrator's <code>todo</code> stages appear here the moment it plans the build.</div>`;
+    $("#plan-stages").innerHTML = (plan.items || []).map((it) =>
+      `<li class="stage stage-${esc(it.state || "todo")}">
+        <span class="stage-dot"></span>
+        <span class="stage-body"><span class="stage-text">${esc(it.content || "")}</span>
+        <span class="stage-state">${esc(it.state || "todo")}</span></span></li>`
+    ).join("") || "";
   }
 
   async function loadQueue() {
@@ -170,7 +227,7 @@
     $$(".link-panel").forEach((a) => a.onclick = (ev) => { ev.preventDefault(); openPanel(a.dataset.id); });
   }
 
-  const LOADERS = { live: loadLive, queue: loadQueue, audit: loadAudit, neckbeard: loadNeckbeard, metrics: loadMetrics };
+  const LOADERS = { live: loadLive, plan: loadPlan, queue: loadQueue, audit: loadAudit, neckbeard: loadNeckbeard, metrics: loadMetrics };
   let current = "live";
 
   async function refresh() {
@@ -206,6 +263,6 @@
     $$(".tab").forEach((t) => t.onclick = () => showView(t.dataset.view));
     $("#audit-filters").onsubmit = (e) => { e.preventDefault(); loadAudit(); };
     $("#gate-panel-close").onclick = () => $("#gate-panel").close();
-    setInterval(() => { if (current === "live") refresh(); }, 5000);
+    setInterval(() => { if (current === "live" || current === "plan") refresh(); }, 4000);
   });
 })();

@@ -19,6 +19,7 @@
 
   <nav class="tabs" aria-label="Dashboard views">
     <button class="tab active" data-view="live">Live</button>
+    <button class="tab" data-view="plan">Plan</button>
     <button class="tab" data-view="queue">Queue</button>
     <button class="tab" data-view="audit">Audit trail</button>
     <button class="tab" data-view="neckbeard">Neckbeard</button>
@@ -32,19 +33,25 @@
       dispatches blocked on reviewer error / timeout / quota. Silent degradation is visible here.
     </section>
 
-    <!-- LIVE -->
+    <!-- LIVE (command center) -->
     <section class="view" id="view-live">
-      <h2>Live <span class="muted">· subagent execution</span></h2>
-      <h3>Active subagents</h3>
-      <table id="live-active"><thead><tr>
-        <th>Goal</th><th>Role</th><th>Status</th><th>Last tool</th><th>Tools</th><th>Elapsed</th>
-      </tr></thead><tbody></tbody></table>
-      <h3>Activity feed <span class="muted">· most recent tool calls, newest first</span></h3>
+      <h2>Live <span class="muted">· orchestrator + agents, gate-reviewed</span></h2>
+      <div id="orch-card" class="agent-card orch"></div>
+      <h3>Agents <span class="muted">· active subagents, their tasks &amp; the reviewer's tightening</span></h3>
+      <div id="live-agents" class="agent-grid"></div>
+      <h3>Activity feed <span class="muted">· every tool call, newest first</span></h3>
       <table id="live-feed"><thead><tr>
-        <th>When</th><th>Subagent</th><th>Tool</th><th>Status</th><th>ms</th>
+        <th>When</th><th>Who</th><th>Tool</th><th>Status</th><th>ms</th>
       </tr></thead><tbody></tbody></table>
-      <h3>Completed <span class="muted">· subagent output</span></h3>
+      <h3>Completed <span class="muted">· finished agents &amp; their output</span></h3>
       <div id="live-completed" class="cards"></div>
+    </section>
+
+    <!-- PLAN (the orchestrator's live stages) -->
+    <section class="view" id="view-plan" hidden>
+      <h2>Build plan <span class="muted">· the orchestrator's live stages — done, active, to&nbsp;do</span></h2>
+      <div id="plan-head" class="plan-head"></div>
+      <ol id="plan-stages" class="stages"></ol>
     </section>
 
     <!-- QUEUE -->

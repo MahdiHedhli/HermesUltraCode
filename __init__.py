@@ -281,6 +281,31 @@ def register(ctx) -> None:
         log.debug("hermesultracode: subagent progress hooks not registered: %s", exc)
 
 
+def _extract_todos(result, args):
+    """Pull a ``[{id, content, status}, ...]`` plan out of a ``todo`` tool call's result or
+    args. The write returns the full current list; we also accept the ``todos`` input."""
+    import json
+
+    def as_items(v):
+        if isinstance(v, list):
+            return [x for x in v if isinstance(x, dict) and any(k in x for k in ("content", "status", "id"))]
+        if isinstance(v, dict):
+            for k in ("todos", "items", "list"):
+                if isinstance(v.get(k), list):
+                    return as_items(v[k])
+        if isinstance(v, str) and v.strip()[:1] in ("[", "{"):
+            try:
+                return as_items(json.loads(v))
+            except Exception:  # noqa: BLE001
+                return []
+        return []
+
+    items = as_items(result)
+    if not items and isinstance(args, dict):
+        items = as_items(args.get("todos"))
+    return items
+
+
 def _make_progress_hooks():
     """Observer hooks that record subagent lifecycle into the in-memory progress store
     (server.progress.PROGRESS) for the dashboard Live view. Each is fail-safe and returns
@@ -299,10 +324,17 @@ def _make_progress_hooks():
 
     def on_post_tool_call(**kw):
         try:
+            tool = kw.get("tool_name", "")
             PROGRESS.tool_event(
-                kw.get("session_id", ""), kw.get("tool_name", ""),
-                kw.get("status", ""), kw.get("duration_ms", 0),
+                kw.get("session_id", ""), tool, kw.get("status", ""), kw.get("duration_ms", 0),
             )
+            # The orchestrator's `todo` write IS its plan (stages done/active/todo). Capture
+            # it for the dashboard Plan window. Hermes' single `todo` tool takes a `todos`
+            # list of {id, content, status}; a write also returns the full current list.
+            if tool == "todo":
+                items = _extract_todos(kw.get("result"), kw.get("args"))
+                if items:
+                    PROGRESS.set_plan(items, source="todo")
         except Exception:  # noqa: BLE001
             pass
         return None
