@@ -1,0 +1,64 @@
+/* HermesUltraCode dashboard-plugin styles. Scoped under .uc-* to avoid clashing with the
+   host dashboard, and theme-neutral (semi-transparent neutrals + semantic accents) so they
+   read on either a light or dark host. */
+.uc-root { padding: 8px 2px 24px; }
+.uc-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.uc-title { font-size: 16px; font-weight: 600; }
+.uc-muted { opacity: .6; font-weight: 400; }
+.uc-tabs { display: flex; gap: 6px; }
+.uc-tab { background: transparent; border: 1px solid rgba(128,128,128,.3); border-radius: 6px;
+  padding: 5px 12px; cursor: pointer; color: inherit; font: inherit; }
+.uc-tab.uc-active { background: rgba(110,168,254,.18); border-color: rgba(110,168,254,.5); }
+.uc-h3 { font-size: 13px; opacity: .7; margin: 16px 0 8px; font-weight: 600; }
+
+.uc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.uc-card { border: 1px solid rgba(128,128,128,.28); background: rgba(128,128,128,.05);
+  border-radius: 10px; padding: 12px 14px; }
+.uc-orch { border-color: rgba(110,168,254,.5); background: rgba(110,168,254,.08); margin-bottom: 14px; }
+.uc-card-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.uc-id { font-weight: 600; } .uc-role { opacity: .6; font-weight: 400; font-size: 12px; }
+.uc-goal { margin: 7px 0; font-size: 13px; line-height: 1.4; }
+.uc-meta { display: flex; gap: 14px; opacity: .7; font-size: 12px; flex-wrap: wrap; }
+.uc-meta code, .uc-tool, .uc-chip code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.uc-log { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 9px; }
+.uc-chip code { font-size: 11px; padding: 1px 5px; border-radius: 4px; background: rgba(128,128,128,.18); }
+.uc-chip.uc-bad code { color: #e5604d; background: rgba(229,96,77,.16); }
+.uc-gate { margin-top: 10px; border-top: 1px dashed rgba(128,128,128,.3); padding-top: 8px; }
+.uc-gate-h { font-size: 12px; opacity: .8; }
+.uc-dirs { margin: 6px 0 0; padding-left: 0; list-style: none; }
+.uc-dirs li { font-size: 12px; color: #2f9e6e; padding: 2px 0; line-height: 1.35; }
+
+.uc-feed { display: flex; flex-direction: column; margin-bottom: 8px; }
+.uc-feed-row { display: flex; align-items: center; gap: 10px; padding: 5px 4px;
+  border-bottom: 1px solid rgba(128,128,128,.15); font-size: 12px; }
+.uc-who { font-family: ui-monospace, monospace; opacity: .8; min-width: 78px; }
+.uc-who-orch { color: #6ea8fe; font-weight: 600; min-width: 110px; }
+.uc-tool { background: rgba(128,128,128,.14); padding: 1px 5px; border-radius: 4px; }
+.uc-ms { margin-left: auto; opacity: .6; }
+
+.uc-badge { padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+.uc-ok { background: rgba(63,185,138,.2); color: #2f9e6e; }
+.uc-run { background: rgba(110,168,254,.2); color: #4d82d6; }
+.uc-bad { background: rgba(229,96,77,.2); color: #d6432f; }
+.uc-tier { background: rgba(110,168,254,.16); color: #4d82d6; }
+.uc-badge.uc-muted { background: rgba(128,128,128,.2); color: inherit; opacity: .75; }
+
+.uc-bar { height: 12px; background: rgba(128,128,128,.18); border-radius: 999px; overflow: hidden; }
+.uc-bar-fill { height: 100%; background: linear-gradient(90deg, #3fb98a, #6ea8fe); transition: width .4s ease; }
+.uc-counts { margin: 10px 0 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.uc-stages { list-style: none; margin: 0; padding: 0; border-left: 2px solid rgba(128,128,128,.3); }
+.uc-stage { position: relative; padding: 11px 8px 11px 24px; }
+.uc-dot { position: absolute; left: -8px; top: 15px; width: 13px; height: 13px; border-radius: 50%;
+  background: rgba(128,128,128,.3); border: 2px solid rgba(128,128,128,.45); }
+.uc-stage-body { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.uc-stage-text { font-size: 13.5px; } .uc-stage-state { font-size: 11px; text-transform: uppercase; opacity: .6; white-space: nowrap; }
+.uc-stage-done .uc-dot { background: #3fb98a; border-color: #3fb98a; }
+.uc-stage-done .uc-stage-text { opacity: .55; text-decoration: line-through; }
+.uc-stage-active .uc-dot { background: #6ea8fe; border-color: #6ea8fe; box-shadow: 0 0 0 4px rgba(110,168,254,.2); }
+.uc-stage-active .uc-stage-text { font-weight: 600; }
+.uc-stage-blocked .uc-dot { background: #e5604d; border-color: #e5604d; }
+
+.uc-table { width: 100%; border-collapse: collapse; }
+.uc-table th, .uc-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid rgba(128,128,128,.18); font-size: 13px; }
+.uc-table th { opacity: .6; font-weight: 600; }

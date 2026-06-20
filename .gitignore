@@ -2,8 +2,8 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .eggs/
-build/
-dist/
+/build/
+/dist/
 *.sqlite3
 *.sqlite3-journal
 gate_audit*.sqlite3
