@@ -496,9 +496,10 @@ def _register_local_cli(ctx) -> None:
         _ensure_importable()
         from core.local_probe import LocalProbe
 
+        placeholder = "<your-loaded-model>"
         probe = LocalProbe(args.base_url)
         alive = probe.alive()
-        model = args.model or (probe.models[0] if probe.models else "<your-loaded-model>")
+        model = args.model or (probe.models[0] if probe.models else placeholder)
         print()
         print(f"  LM Studio endpoint : {args.base_url}  [{'reachable' if alive else 'NOT reachable'}]")
         if alive and probe.models:
@@ -516,6 +517,10 @@ def _register_local_cli(ctx) -> None:
         print()
         if not args.apply:
             print("  (dry run — re-run with --apply to write it; a backup is made first)")
+            return
+        if model == placeholder:
+            print("  Refusing --apply: the endpoint is unreachable and no --model was given.")
+            print("  Start the local server (or pass --model <id>) and re-run.")
             return
         _apply_delegation_block(args.base_url, model)
 

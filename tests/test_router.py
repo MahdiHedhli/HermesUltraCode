@@ -80,12 +80,20 @@ class ChooseWorkerTest(unittest.TestCase):
         d = choose_worker(TIER_STANDARD, CAT, est_in=40000, est_out=10000)  # 50k > gemma 32768
         self.assertFalse(d.is_local)
 
-    def test_no_candidate_names_fallback(self):
+    def test_no_candidate_names_fallback_with_real_cost(self):
         small = load_catalog({"models": {"c/h": {"lab": "c", "capability_tier": 1, "ctx": 200000,
                                                   "usd_per_mtok_in": 1.0, "usd_per_mtok_out": 1.0}}})
         d = choose_worker(TIER_ELEVATED, small)
         self.assertEqual(d.reason, "fallback_no_candidate")
         self.assertEqual(d.model_id, "c/h")
+        self.assertGreater(d.est_cost_usd, 0.0)   # S1: a real cloud fallback reports real spend
+
+    def test_typod_default_api_worker_falls_through(self):
+        from core.router import RouterConfig
+        small = load_catalog({"models": {"c/h": {"lab": "c", "capability_tier": 1, "ctx": 200000,
+                                                  "usd_per_mtok_in": 1.0, "usd_per_mtok_out": 1.0}}})
+        d = choose_worker(TIER_ELEVATED, small, cfg=RouterConfig(default_api_worker="nope/typo"))
+        self.assertEqual(d.model_id, "c/h")        # N1: unknown default => cheapest real cloud
 
     def test_cost_helpers(self):
         sonnet = CAT["anthropic/claude-sonnet"]

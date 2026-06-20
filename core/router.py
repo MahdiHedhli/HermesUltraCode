@@ -128,18 +128,21 @@ def choose_worker(
     baseline_cloud = min((real_cost_usd(m, est_in, est_out) for m in cloud), default=0.0)
 
     if not candidates:
-        # Nothing eligible: name the sanctioned default, else the cheapest cloud model in the
-        # whole catalog (under-tier, flagged by the reason). Purely advisory — the gate already
-        # released, so this can never block a dispatch.
-        fallback = cfg.default_api_worker
-        if not fallback:
+        # Nothing eligible: name the sanctioned default if it's a REAL catalog model, else the
+        # cheapest cloud model in the whole catalog (under-tier, flagged by the reason). Purely
+        # advisory — the gate already released, so this can never block a dispatch.
+        entry = catalog.get(cfg.default_api_worker)        # None if unset OR typo'd (N1)
+        if entry is None:
             pool = [m for m in catalog.values() if not m.is_local] or list(catalog.values())
-            if pool:
-                fallback = min(pool, key=lambda m: real_cost_usd(m, est_in, est_out)).model_id
-        entry = catalog.get(fallback)
-        return RouteDecision(fallback, entry.lab if entry else "", bool(entry and entry.is_local),
-                             req, "fallback_no_candidate",
-                             0.0, baseline_cloud, 0.0)
+            entry = min(pool, key=lambda m: real_cost_usd(m, est_in, est_out)) if pool else None
+        if entry is None:
+            return RouteDecision("", "", False, req, "fallback_no_candidate", 0.0, baseline_cloud, 0.0)
+        # Report the fallback's REAL cost (S1): an under-tier cloud fallback still spends dollars,
+        # so a 0.0 here would silently under-count spend in the savings ledger.
+        est = real_cost_usd(entry, est_in, est_out)
+        return RouteDecision(entry.model_id, entry.lab, entry.is_local, req,
+                             "fallback_no_candidate", est, baseline_cloud,
+                             max(0.0, baseline_cloud - est))
 
     chosen = min(candidates, key=lambda m: effective_cost(m, est_in, est_out, cfg))
     est = real_cost_usd(chosen, est_in, est_out)
