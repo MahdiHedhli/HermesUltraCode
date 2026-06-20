@@ -1,14 +1,36 @@
 # HermesUltraCode
 
-> **A neutral, _different-lab_ reviewer that vets every Hermes `delegate_task` before a
-> worker ever runs — tighten-only, fail-closed, fully audited.**
+> **Disciplined minimal code orchestrator with gated multi-model review before subagents ever start writing code.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-black?style=flat-square)](LICENSE)
 &nbsp;![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)
 &nbsp;![Runtime deps: 0](https://img.shields.io/badge/runtime_deps-0-2ea043?style=flat-square)
-&nbsp;![Tests: 177 passing](https://img.shields.io/badge/tests-177_passing-2ea043?style=flat-square)
+&nbsp;![Tests: 182 passing](https://img.shields.io/badge/tests-182_passing-2ea043?style=flat-square)
 &nbsp;![Hermes plugin + skill](https://img.shields.io/badge/Hermes-plugin_%2B_skill-7c3aed?style=flat-square)
 &nbsp;![Degrades: fail-closed](https://img.shields.io/badge/degrades-fail--closed-e5604d?style=flat-square)
+
+HermesUltraCode is a plugin for [Hermes Agent](https://nousresearch.com/) (Nous Research), not a
+new agent runtime. It wraps the moment Hermes hands a task to a subagent and runs that task past a
+neutral reviewer on a **different model lab** before any subagent starts writing code; the reviewer
+can only tighten the task or block it, never rewrite it, and every decision is recorded in an
+immutable, secret-redacted audit trail. "Orchestrator" names the mode of working (plan, review, then
+dispatch); it rides on your existing Hermes orchestrator and does not replace it.
+
+**Install and first run** (full detail in [Quick start](#quick-start)):
+
+```bash
+hermes plugins install MahdiHedhli/HermesUltraCode
+# configure a reviewer on a DIFFERENT lab than your orchestrator in ~/.hermes/.env
+# (Quick start has a keyless xAI-proxy example), then:
+hermes plugins enable hermesultracode
+hermes gateway restart                 # or just start a fresh `hermes` session
+```
+
+> ⚠️ **It fails closed until a reviewer is configured.** With no reviewer set, the gate blocks every
+> `delegate_task` rather than dispatch a worker un-vetted. Set the reviewer env first.
+
+Then drive it with `/ultracode <task>`, or open the **UltraCode tab** in `hermes dashboard` (under
+*Plugins*, beside Kanban).
 
 <p align="center">
   <img src="docs/dashboard-tab-live.png" alt="A native UltraCode tab in the Hermes web dashboard — orchestrator + parallel subagents, each gate-reviewed with its tightening directive" width="900">
@@ -22,7 +44,8 @@
 </p>
 <p align="center"><sub>Same tab, more sub-views — <b>Plan</b> (left): the orchestrator's live build stages (<i>done · active · to&nbsp;do</i>) from its <code>todo</code> tool; <b>Audit</b> (right): the immutable trail — blast-radius tiers, per-dispatch verdicts/decisions, and the <b>fail-closed</b> flag so silent degradation is <i>visible</i>. The same views are also a <b>build-free standalone dashboard</b> (<code>hermes ultracode-dashboard</code>) when you want it decoupled.</sub></p>
 
-A self-contained **pre-dispatch prompt gate**, **neckbeard generation discipline**, and
+A self-contained **pre-dispatch prompt gate**, **neckbeard generation discipline**
+([ported from Ponytail](https://github.com/DietrichGebert/ponytail)), and
 **observability dashboard** layered onto an existing
 [Hermes Agent](https://nousresearch.com/) (Nous Research) orchestrator/worker setup. It
 does **not** rebuild Hermes — it wraps the subagent-dispatch boundary so no worker prompt
@@ -359,7 +382,7 @@ hermes skills install MahdiHedhli/skills/neckbeard     # minimalism ruleset
 > was wrong, and refuses the dependency because the maintainer made a questionable
 > decision in 2019.)*
 
-> **Credit:** Neckbeard is a fork of the **Ponytail** ruleset (MIT), renamed for this
+> **Credit:** Neckbeard is a fork of the [**Ponytail**](https://github.com/DietrichGebert/ponytail) ruleset (MIT), renamed for this
 > project — only the vendored *text* was lifted, nothing executable. Thanks to the
 > original Ponytail authors.
 
