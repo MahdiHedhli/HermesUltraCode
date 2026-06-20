@@ -63,6 +63,16 @@ END;
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON dispatch_audit(ts);
 CREATE INDEX IF NOT EXISTS idx_audit_tier ON dispatch_audit(tier);
 CREATE INDEX IF NOT EXISTS idx_audit_verdict ON dispatch_audit(verdict);
+
+-- Live progress snapshot (mutable, ephemeral, single row): the latest in-memory
+-- PROGRESS.snapshot() as JSON, so a dashboard in ANOTHER process (the Hermes web
+-- dashboard plugin) can read live orchestrator/agent/plan state. NOT under the
+-- immutability triggers — this is live UI state, not audit evidence.
+CREATE TABLE IF NOT EXISTS progress_snapshot (
+    id            INTEGER PRIMARY KEY CHECK (id = 1),
+    ts            TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL
+);
 """
 
 
@@ -131,6 +141,38 @@ class SqliteAuditStore(AuditStore):
                 "SELECT * FROM dispatch_audit WHERE id = ?", (record_id,)
             ).fetchone()
         return _row_to_record(row) if row else None
+
+    # -- live progress snapshot (mutable, cross-process) ----------------------
+
+    def put_progress_snapshot(self, snapshot: dict) -> None:
+        """Upsert the single live-progress row so another process can read live state.
+        Redacted on write — the snapshot carries goals/summaries; secrets never hit disk."""
+        import json
+        import time
+
+        blob = json.dumps(redact_obj(snapshot), ensure_ascii=False, default=str)
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO progress_snapshot (id, ts, snapshot_json) VALUES (1, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET ts = excluded.ts, "
+                "snapshot_json = excluded.snapshot_json",
+                (time.strftime("%Y-%m-%dT%H:%M:%S"), blob),
+            )
+            self._conn.commit()
+
+    def get_progress_snapshot(self) -> dict | None:
+        import json
+
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT snapshot_json FROM progress_snapshot WHERE id = 1"
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            return json.loads(row["snapshot_json"])
+        except Exception:  # noqa: BLE001
+            return None
 
     def query(self, flt: AuditFilter | None = None) -> list[DispatchRecord]:
         flt = flt or AuditFilter()

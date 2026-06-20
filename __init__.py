@@ -273,7 +273,7 @@ def register(ctx) -> None:
     # Live subagent progress: feed the dashboard's Live tab from the real Hermes
     # subagent lifecycle (these are observer hooks — they never block or alter a call).
     try:
-        start_cb, tool_cb, stop_cb = _make_progress_hooks()
+        start_cb, tool_cb, stop_cb = _make_progress_hooks(store)
         ctx.register_hook("subagent_start", start_cb)
         ctx.register_hook("post_tool_call", tool_cb)
         ctx.register_hook("subagent_stop", stop_cb)
@@ -306,11 +306,31 @@ def _extract_todos(result, args):
     return items
 
 
-def _make_progress_hooks():
+def _make_progress_hooks(store=None):
     """Observer hooks that record subagent lifecycle into the in-memory progress store
-    (server.progress.PROGRESS) for the dashboard Live view. Each is fail-safe and returns
-    None (never blocks or rewrites a call)."""
+    (server.progress.PROGRESS) for the dashboard Live view, AND mirror the enriched live
+    view to SQLite so a dashboard in ANOTHER process (the Hermes web-dashboard plugin) can
+    read it. Each is fail-safe and returns None (never blocks or rewrites a call)."""
+    import time as _t
+
     from server.progress import PROGRESS
+    from server.views import make_progress_live_source
+
+    live_fn = make_progress_live_source(PROGRESS)
+    last = {"t": 0.0}
+
+    def persist(force=False):
+        # Throttle the cross-process mirror to ~1/s (lifecycle changes flush immediately).
+        if store is None:
+            return
+        now = _t.monotonic()
+        if not force and (now - last["t"]) < 1.0:
+            return
+        last["t"] = now
+        try:
+            store.put_progress_snapshot(live_fn(store))
+        except Exception:  # noqa: BLE001
+            pass
 
     def on_subagent_start(**kw):
         try:
@@ -320,6 +340,7 @@ def _make_progress_hooks():
             )
         except Exception:  # noqa: BLE001
             pass
+        persist(force=True)
         return None
 
     def on_post_tool_call(**kw):
@@ -337,6 +358,7 @@ def _make_progress_hooks():
                     PROGRESS.set_plan(items, source="todo")
         except Exception:  # noqa: BLE001
             pass
+        persist(force=(kw.get("tool_name") == "todo"))
         return None
 
     def on_subagent_stop(**kw):
@@ -347,6 +369,7 @@ def _make_progress_hooks():
             )
         except Exception:  # noqa: BLE001
             pass
+        persist(force=True)
         return None
 
     return on_subagent_start, on_post_tool_call, on_subagent_stop

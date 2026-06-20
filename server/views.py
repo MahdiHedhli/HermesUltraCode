@@ -160,6 +160,31 @@ def make_progress_live_source(progress) -> LiveSource:
     return src
 
 
+def make_store_live_source(store) -> LiveSource:
+    """Live source that reads the persisted progress snapshot from SQLite (written by the
+    agent process's hooks) — for a dashboard running in a DIFFERENT process (the Hermes
+    web-dashboard plugin), which can't see the agent's in-memory PROGRESS. The snapshot is
+    the already-enriched, already-redacted live view; returned verbatim with an empty
+    fallback so the view degrades gracefully when no build is running."""
+
+    def src(_store: AuditStore | None = None) -> dict[str, Any]:
+        try:
+            snap = store.get_progress_snapshot()
+        except Exception:  # noqa: BLE001
+            snap = None
+        if not snap:
+            return {
+                "orchestrator": {"status": "online", "backend": "hermes-orchestrator",
+                                 "active": False, "tool_count": 0, "last_tool": "", "log": []},
+                "active": [], "feed": [], "completed": [],
+                "plan": {"items": [], "progress": {"total": 0, "done": 0, "active": 0, "todo": 0, "pct": 0}},
+                "last_gate_decision": None,
+            }
+        return snap
+
+    return src
+
+
 def default_queue_source(store: AuditStore) -> list[dict[str, Any]]:
     """Recent dispatches as a queue, newest first, each with its tier badge."""
     recent = list(reversed(store.query(AuditFilter(limit=25))))

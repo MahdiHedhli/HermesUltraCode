@@ -1,0 +1,14 @@
+{
+  "name": "hermesultracode",
+  "label": "UltraCode",
+  "description": "Pre-dispatch gate — orchestrator, agents in parallel, the build plan, and the reviewer's tightening per agent.",
+  "icon": "ShieldCheck",
+  "version": "0.2.0",
+  "tab": {
+    "path": "/ultracode",
+    "position": "after:skills"
+  },
+  "entry": "dist/index.js",
+  "css": "dist/style.css",
+  "api": "plugin_api.py"
+}
