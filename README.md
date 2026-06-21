@@ -337,6 +337,11 @@ model it *would* pick and the **dollars saved vs cloud**, surfaced in `/api/metr
 and the dashboard. Tune with `HERMESULTRACODE_LOCAL_BIAS`, `…_LOCAL_TRUSTED_TIER`,
 `…_LOCAL_BASE_URL`, `…_LOCAL_BOX_WATTS`, `…_USD_PER_KWH`.
 
+<p align="center">
+  <img src="docs/dashboard-tab-cost.png" alt="The Cost sub-tab — dollars saved vs all-cloud, the local-vs-cloud split, and a per-dispatch routing table" width="860">
+</p>
+<p align="center"><sub>The <b>Cost</b> sub-tab — <b>dollars saved vs an all-cloud baseline</b>, the local-vs-cloud split, and a per-dispatch table of <i>what the router picked and why</i>. Standard/trivial work lands on the local model; <code>elevated</code>/<code>merge_adjacent</code> is risk-gated to cloud regardless of price.</sub></p>
+
 **③ Per-task binding (upstream).** Hermes binds the worker model from one *global* delegation
 block, so true per-task routing needs a small, additive Hermes change. The advisory router
 flips to *binding* with a one-line adapter change the day it lands — see
