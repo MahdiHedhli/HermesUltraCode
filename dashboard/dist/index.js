@@ -122,15 +122,58 @@
         : e("tr", null, e("td", { colSpan: 6, className: "uc-muted" }, "no dispatches yet — configure a reviewer and run a delegate_task"))));
   }
 
+  function usd(n) { return "$" + (Math.round((+n || 0) * 10000) / 10000).toFixed(4); }
+
+  function costView(metrics, rows) {
+    var r = metrics && metrics.routing;
+    if (!r) {
+      return e("div", cls("uc-muted"),
+        "Cost-aware routing is off. Set ", e("code", null, "HERMESULTRACODE_ROUTING=1"),
+        " to see the model the router would pick for each dispatch and the dollars it would save vs cloud.");
+    }
+    var saved = +r.est_savings_usd || 0, base = +r.baseline_cloud_usd || 0, spent = +r.est_cost_usd || 0;
+    var pct = base > 0 ? Math.round(100 * saved / base) : 0;
+    var localPct = r.advised_total ? Math.round(100 * r.advised_local / r.advised_total) : 0;
+    var routed = (Array.isArray(rows) ? rows : []).filter(function (x) { return x.routed_model; });
+    return e("div", null,
+      e("div", cls("uc-cost-hero"),
+        e("div", cls("uc-cost-big"), usd(saved), e("span", cls("uc-cost-cap"), " saved vs all-cloud")),
+        e("div", cls("uc-cost-sub"),
+          usd(spent), " spent", " · ", usd(base), " baseline", " · ", e("b", null, pct + "% saved"))),
+      e("div", cls("uc-counts"),
+        badge(r.advised_local + " local", "ok"), " ", badge(r.advised_cloud + " cloud", "tier"), " ",
+        e("span", cls("uc-muted"), r.advised_total + " routed dispatches")),
+      e("div", cls("uc-bar"), e("div", { className: "uc-bar-fill", style: { width: localPct + "%" } })),
+      e("h3", cls("uc-h3"), "Per-dispatch routing", e("span", cls("uc-muted"), " · what the router picked + why")),
+      e("table", cls("uc-table"),
+        e("thead", null, e("tr", null, ["Time", "Tier", "Need", "Worker", "Why", "Cost", "Saved"].map(
+          function (t, i) { return e("th", { key: i }, t); }))),
+        e("tbody", null, routed.length
+          ? routed.map(function (x, i) {
+              return e("tr", { key: i },
+                e("td", null, x.ts),
+                e("td", null, badge(x.tier, "tier")),
+                e("td", null, "t" + (x.route_required_tier || "?")),
+                e("td", null, e("code", null, x.routed_model || "—"), " ",
+                  x.routed_is_local ? badge("local", "ok") : null),
+                e("td", cls("uc-muted"), x.route_reason || ""),
+                e("td", null, usd(x.est_cost_usd)),
+                e("td", null, (+x.est_savings_usd > 0)
+                  ? e("b", cls("uc-saved"), usd(x.est_savings_usd)) : "—"));
+            })
+          : e("tr", null, e("td", { colSpan: 7, className: "uc-muted" }, "no routed dispatches yet")))));
+  }
+
   function hashView() {
     var h = (typeof location !== "undefined" ? location.hash || "" : "").replace(/^#/, "");
-    return (h === "plan" || h === "audit") ? h : "live";
+    return (h === "plan" || h === "audit" || h === "cost") ? h : "live";
   }
 
   function UltraCode() {
     var t = useState(hashView()), view = t[0], setView = t[1];
     var dl = useState(null), live = dl[0], setLive = dl[1];
     var al = useState(null), aud = al[0], setAud = al[1];
+    var ml = useState(null), met = ml[0], setMet = ml[1];
     var er = useState(null), err = er[0], setErr = er[1];
     useEffect(function () {
       if (!fetchJSON) { setErr("Dashboard SDK unavailable — no authenticated fetch."); return; }
@@ -142,6 +185,10 @@
         if (view === "audit") {
           fetchJSON(API + "/audit?limit=60").then(function (r) { if (alive) setAud((r && r.rows) || []); }).catch(function () {});
         }
+        if (view === "cost") {
+          fetchJSON(API + "/metrics").then(function (r) { if (alive) setMet(r); }).catch(function () {});
+          fetchJSON(API + "/audit?limit=200").then(function (r) { if (alive) setAud((r && r.rows) || []); }).catch(function () {});
+        }
       }
       load();
       var id = setInterval(load, 4000);
@@ -149,7 +196,7 @@
     }, [view]);
     function go(v) { setView(v); try { location.hash = v; } catch (e) { /* no-op */ } }
     var d = live || {};
-    var tabs = [["live", "Live"], ["plan", "Plan"], ["audit", "Audit"]];
+    var tabs = [["live", "Live"], ["plan", "Plan"], ["cost", "Cost"], ["audit", "Audit"]];
     return e("div", cls("uc-root"),
       e("div", cls("uc-head"),
         e("div", cls("uc-title"), "HermesUltraCode ", e("span", cls("uc-muted"), "· pre-dispatch gate")),
@@ -157,7 +204,10 @@
           return e("button", { key: x[0], className: "uc-tab" + (view === x[0] ? " uc-active" : ""), onClick: function () { go(x[0]); } }, x[1]);
         }))),
       err ? e("div", cls("uc-err"), err) : null,
-      view === "live" ? liveView(d) : view === "plan" ? planView(d) : auditView(aud));
+      view === "live" ? liveView(d)
+        : view === "plan" ? planView(d)
+        : view === "cost" ? costView(met, aud)
+        : auditView(aud));
   }
 
   Plugins.register("hermesultracode", UltraCode);

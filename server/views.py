@@ -33,6 +33,13 @@ def record_summary(r: DispatchRecord) -> dict[str, Any]:
         "reviewer_model": r.reviewer_model,
         "latency_ms": r.latency_ms,
         "added_tokens": r.added_tokens,
+        # Cost-aware routing (advisory): present/zeroed depending on whether routing was on.
+        "routed_model": r.routed_model,
+        "routed_is_local": r.routed_is_local,
+        "route_required_tier": r.route_required_tier,
+        "route_reason": r.route_reason,
+        "est_cost_usd": r.est_cost_usd,
+        "est_savings_usd": r.est_savings_usd,
     }
 
 

@@ -25,6 +25,25 @@ class DashboardPluginTest(unittest.TestCase):
         for p in ("dist/index.js", "dist/style.css", "plugin_api.py", "manifest.json"):
             self.assertTrue(os.path.isfile(os.path.join(DASH, p)), p)
 
+    def test_cost_tab_present(self):
+        js = open(os.path.join(DASH, "dist/index.js"), encoding="utf-8").read()
+        self.assertIn("costView", js)
+        self.assertIn('["cost", "Cost"]', js)
+        self.assertIn("/metrics", js)                  # cost view reads the routing block
+
+    def test_record_summary_carries_routing_fields(self):
+        from core.store import DispatchRecord
+        from server.views import record_summary
+        r = DispatchRecord(id="a", ts="t", base_prompt="b", added_directives=(),
+                           dispatched_prompt="b", verdict="pass", tier="standard",
+                           reviewer_model="m", decision="dispatched", round_count=1,
+                           routed_model="local/gemma", routed_is_local=True, est_savings_usd=0.04)
+        s = record_summary(r)
+        for k in ("routed_model", "routed_is_local", "est_cost_usd", "est_savings_usd",
+                  "route_reason", "route_required_tier"):
+            self.assertIn(k, s)
+        self.assertEqual(s["routed_model"], "local/gemma")
+
     def test_frontend_is_buildless_and_registers(self):
         js = open(os.path.join(DASH, "dist/index.js"), encoding="utf-8").read()
         self.assertIn("__HERMES_PLUGIN_SDK__", js)     # uses host React (no bundled React)

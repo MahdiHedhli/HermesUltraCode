@@ -61,6 +61,13 @@
 .uc-stage-active .uc-stage-text { font-weight: 600; }
 .uc-stage-blocked .uc-dot { background: #e5604d; border-color: #e5604d; }
 
+.uc-cost-hero { border: 1px solid rgba(63,185,138,.4); background: rgba(63,185,138,.08);
+  border-radius: 12px; padding: 16px 18px; margin: 4px 0 14px; }
+.uc-cost-big { font-size: 30px; font-weight: 700; color: #2f9e6e; line-height: 1.1; }
+.uc-cost-cap { font-size: 14px; font-weight: 500; color: inherit; opacity: .65; }
+.uc-cost-sub { margin-top: 6px; font-size: 13px; opacity: .8; }
+.uc-saved { color: #2f9e6e; }
+
 .uc-table { width: 100%; border-collapse: collapse; }
 .uc-table th, .uc-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid rgba(128,128,128,.18); font-size: 13px; }
 .uc-table th { opacity: .6; font-weight: 600; }
