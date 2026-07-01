@@ -61,6 +61,49 @@ def metrics() -> dict:
     return views.compute_metrics(_store(), None)
 
 
+def _roster_path() -> str:
+    return os.environ.get(
+        "HERMESULTRACODE_ROSTER",
+        os.path.join(os.path.expanduser("~"), ".hermes", "hermesultracode", "roster.yaml"),
+    )
+
+
+def _reconcile_status() -> dict | None:
+    import json
+    path = os.path.join(os.path.dirname(_roster_path()), "roster-status.json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+@router.get("/roster")
+def roster() -> dict:
+    """The declared topology + the LIVE reviewer mode (the headline: a same-lab reviewer must
+    read as ``same_lab_flagged``/``off``, never present as cross_lab). Read-only, no auth
+    probe (fast); the last reconcile status is read from the out-of-band CLI's snapshot."""
+    path = _roster_path()
+    if not os.path.exists(path):
+        return {"has_roster": False, "reviewer_mode": "off"}
+    try:
+        from core.roster import load_roster
+        r = load_roster(path)
+    except Exception as exc:  # noqa: BLE001
+        return {"has_roster": False, "reviewer_mode": "off", "error": str(exc)}
+    return {
+        "has_roster": True,
+        "reviewer_mode": r.reviewer_mode,
+        "orchestrator": {"profile": r.orchestrator.profile, "lab": r.orchestrator.lab},
+        "reviewer": ({"profile": r.reviewer.profile, "lab": r.reviewer.lab} if r.reviewer else None),
+        "budget_mode": r.budget_mode,
+        "providers": [{"profile": p.profile, "lab": p.lab, "is_local": p.lab == "local",
+                       "description": p.description} for p in r.providers],
+        "routing": {t: list(names) for t, names in r.routing.items()},
+        "reconcile": _reconcile_status(),
+    }
+
+
 @router.get("/neckbeard")
 def neckbeard() -> dict:
     return views.neckbeard_view(_store(), _PLUGIN_ROOT)

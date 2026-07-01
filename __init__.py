@@ -619,6 +619,7 @@ def _register_control_cli(ctx) -> None:
             print(f"  no roster at {path} — run `hermes ultracode-setup` first.")
             return
         rep = reconcile(load_roster(path), HermesProfileBackend())
+        _write_reconcile_status(rep, path)
         print(f"\n  created : {', '.join(rep.created) or '-'}")
         print(f"  ready   : {', '.join(rep.ready) or '-'}")
         for r in rep.not_ready:
@@ -672,6 +673,26 @@ def _register_control_cli(ctx) -> None:
     ):
         ctx.register_cli_command(name, help=desc, setup_fn=lambda sp: None, handler_fn=fn,
                                  description=desc)
+
+
+def _write_reconcile_status(rep, roster_path: str) -> None:
+    """Persist the last reconcile report next to the roster so the dashboard can surface it
+    (the web process can't run a live reconcile on every poll)."""
+    import json
+    status = {
+        "ok": rep.ok(),
+        "created": list(rep.created),
+        "ready": list(rep.ready),
+        "not_ready": [{"profile": r.profile, "reason": r.reason} for r in rep.not_ready],
+        "errors": list(rep.errors),
+    }
+    try:
+        out = os.path.join(os.path.dirname(roster_path), "roster-status.json")
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        with open(out, "w", encoding="utf-8") as fh:
+            json.dump(status, fh)
+    except Exception:  # noqa: BLE001 - status snapshot is best-effort
+        pass
 
 
 def _write_roster(roster_dict: dict, path: str) -> None:

@@ -164,9 +164,64 @@
           : e("tr", null, e("td", { colSpan: 7, className: "uc-muted" }, "no routed dispatches yet")))));
   }
 
+  function reviewerBadge(rost) {
+    if (!rost) return null;
+    var m = rost.reviewer_mode || "off";
+    var kind = m === "cross_lab" ? "ok" : (m === "same_lab_flagged" ? "warn" : "muted");
+    var label = m === "cross_lab" ? "cross-lab review"
+      : (m === "same_lab_flagged" ? "same-lab review (weaker)" : "review off");
+    return e("span", { className: "uc-badge uc-" + kind, title: "Live reviewer mode (from the roster)" },
+      "🛡 " + label);
+  }
+
+  function rosterView(rost) {
+    if (!rost || !rost.has_roster) {
+      return e("div", cls("uc-muted"),
+        "No roster yet. Run ", e("code", null, "hermes ultracode-setup"),
+        " to detect your authenticated providers and write one.");
+    }
+    var m = rost.reviewer_mode || "off", rev = rost.reviewer, orch = rost.orchestrator || {};
+    var detail = m === "cross_lab"
+        ? ("cross-lab — reviewer " + (rev && rev.profile) + " (" + (rev && rev.lab)
+           + ") differs from orchestrator lab " + orch.lab)
+      : m === "same_lab_flagged"
+        ? "same-lab — review runs but shares the orchestrator's blind spots (weaker)"
+        : "single-lab — review disabled; tighten-only";
+    var rec = rost.reconcile;
+    var tiers = ["trivial", "standard", "elevated", "merge_adjacent"];
+    return e("div", null,
+      e("div", { className: "uc-mode-banner uc-mode-" + m },
+        e("b", null, "Reviewer mode: " + m), e("div", cls("uc-muted"), detail)),
+      e("h3", cls("uc-h3"), "Topology"),
+      e("div", cls("uc-meta"),
+        e("span", null, "orchestrator ", e("code", null, orch.profile), " [" + orch.lab + "]"),
+        e("span", null, "budget ", e("code", null, rost.budget_mode || "-"))),
+      e("div", cls("uc-grid"), (rost.providers || []).map(function (p, i) {
+        return e("div", { key: i, className: "uc-card" },
+          e("div", cls("uc-card-h"), e("span", cls("uc-id"), e("code", null, p.profile)),
+            p.is_local ? badge("local", "ok") : badge(p.lab, "tier")),
+          p.description ? e("div", cls("uc-goal"), p.description) : null);
+      })),
+      e("h3", cls("uc-h3"), "Routing", e("span", cls("uc-muted"), " · risk tier → candidate profiles")),
+      e("table", cls("uc-table"), e("tbody", null, tiers.map(function (t, i) {
+        var names = (rost.routing && rost.routing[t]) || [];
+        return e("tr", { key: i }, e("td", null, badge(t, "tier")),
+          e("td", null, names.length ? names.join(" → ") : e("span", cls("uc-muted"), "(none — fails closed)")));
+      }))),
+      e("h3", cls("uc-h3"), "Profile readiness", e("span", cls("uc-muted"), " · last ultracode-reconcile")),
+      rec ? e("div", null,
+        e("div", cls("uc-counts"), rec.ok ? badge("all ready", "ok") : badge("incomplete", "bad"), " ",
+          e("span", cls("uc-muted"), (rec.ready || []).length + " ready · " + (rec.not_ready || []).length + " not ready")),
+        (rec.not_ready || []).length
+          ? e("ul", cls("uc-dirs"), rec.not_ready.map(function (n, i) {
+              return e("li", { key: i, className: "uc-bad-li" }, "✗ " + n.profile + " — " + n.reason); }))
+          : null)
+        : e("div", cls("uc-muted"), "No reconcile run yet — ", e("code", null, "hermes ultracode-reconcile"), "."));
+  }
+
   function hashView() {
     var h = (typeof location !== "undefined" ? location.hash || "" : "").replace(/^#/, "");
-    return (h === "plan" || h === "audit" || h === "cost") ? h : "live";
+    return (h === "plan" || h === "audit" || h === "cost" || h === "roster") ? h : "live";
   }
 
   function UltraCode() {
@@ -174,6 +229,7 @@
     var dl = useState(null), live = dl[0], setLive = dl[1];
     var al = useState(null), aud = al[0], setAud = al[1];
     var ml = useState(null), met = ml[0], setMet = ml[1];
+    var rl = useState(null), rost = rl[0], setRost = rl[1];
     var er = useState(null), err = er[0], setErr = er[1];
     useEffect(function () {
       if (!fetchJSON) { setErr("Dashboard SDK unavailable — no authenticated fetch."); return; }
@@ -182,6 +238,7 @@
         fetchJSON(API + "/live")
           .then(function (r) { if (alive) { setLive(r); setErr(null); } })
           .catch(function () { if (alive) setErr("Can't reach the UltraCode backend (/api/plugins/hermesultracode)."); });
+        fetchJSON(API + "/roster").then(function (r) { if (alive) setRost(r); }).catch(function () {});
         if (view === "audit") {
           fetchJSON(API + "/audit?limit=60").then(function (r) { if (alive) setAud((r && r.rows) || []); }).catch(function () {});
         }
@@ -196,10 +253,11 @@
     }, [view]);
     function go(v) { setView(v); try { location.hash = v; } catch (e) { /* no-op */ } }
     var d = live || {};
-    var tabs = [["live", "Live"], ["plan", "Plan"], ["cost", "Cost"], ["audit", "Audit"]];
+    var tabs = [["live", "Live"], ["plan", "Plan"], ["cost", "Cost"], ["roster", "Roster"], ["audit", "Audit"]];
     return e("div", cls("uc-root"),
       e("div", cls("uc-head"),
-        e("div", cls("uc-title"), "HermesUltraCode ", e("span", cls("uc-muted"), "· pre-dispatch gate")),
+        e("div", cls("uc-title"), "HermesUltraCode ", e("span", cls("uc-muted"), "· pre-dispatch gate"),
+          " ", reviewerBadge(rost)),
         e("div", cls("uc-tabs"), tabs.map(function (x) {
           return e("button", { key: x[0], className: "uc-tab" + (view === x[0] ? " uc-active" : ""), onClick: function () { go(x[0]); } }, x[1]);
         }))),
@@ -207,6 +265,7 @@
       view === "live" ? liveView(d)
         : view === "plan" ? planView(d)
         : view === "cost" ? costView(met, aud)
+        : view === "roster" ? rosterView(rost)
         : auditView(aud));
   }
 

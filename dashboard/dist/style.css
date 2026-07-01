@@ -61,6 +61,16 @@
 .uc-stage-active .uc-stage-text { font-weight: 600; }
 .uc-stage-blocked .uc-dot { background: #e5604d; border-color: #e5604d; }
 
+.uc-warn { background: rgba(230,170,40,.22); color: #c98a12; }
+.uc-bad-li { font-size: 12px; color: #e5604d; padding: 2px 0; line-height: 1.35; list-style: none; }
+.uc-mode-banner { border-radius: 10px; padding: 12px 16px; margin: 4px 0 14px;
+  border: 1px solid rgba(128,128,128,.3); }
+.uc-mode-cross_lab { border-color: rgba(63,185,138,.5); background: rgba(63,185,138,.10); }
+.uc-mode-cross_lab b { color: #2f9e6e; }
+.uc-mode-same_lab_flagged { border-color: rgba(230,170,40,.55); background: rgba(230,170,40,.12); }
+.uc-mode-same_lab_flagged b { color: #c98a12; }
+.uc-mode-off { border-color: rgba(128,128,128,.4); background: rgba(128,128,128,.08); }
+
 .uc-cost-hero { border: 1px solid rgba(63,185,138,.4); background: rgba(63,185,138,.08);
   border-radius: 12px; padding: 16px 18px; margin: 4px 0 14px; }
 .uc-cost-big { font-size: 30px; font-weight: 700; color: #2f9e6e; line-height: 1.1; }

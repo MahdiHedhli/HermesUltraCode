@@ -31,6 +31,16 @@ class DashboardPluginTest(unittest.TestCase):
         self.assertIn('["cost", "Cost"]', js)
         self.assertIn("/metrics", js)                  # cost view reads the routing block
 
+    def test_roster_tab_and_reviewer_indicator(self):
+        js = open(os.path.join(DASH, "dist/index.js"), encoding="utf-8").read()
+        self.assertIn("reviewerBadge", js)             # prominent live reviewer-mode badge
+        self.assertIn("rosterView", js)
+        self.assertIn('["roster", "Roster"]', js)
+        self.assertIn("/roster", js)
+        api = open(os.path.join(DASH, "plugin_api.py"), encoding="utf-8").read()
+        self.assertIn('@router.get("/roster")', api)
+        self.assertIn("reviewer_mode", api)            # backend surfaces the live mode
+
     def test_record_summary_carries_routing_fields(self):
         from core.store import DispatchRecord
         from server.views import record_summary
