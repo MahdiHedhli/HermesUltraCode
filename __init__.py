@@ -323,6 +323,13 @@ def register(ctx) -> None:
     except Exception as exc:  # noqa: BLE001
         log.debug("hermesultracode: local CLI not registered: %s", exc)
 
+    # Kanban+profiles control plane: CLI-ONLY (never agent tools — invariant "control-plane
+    # stays out of the model's reach"). roster (read) / reconcile + setup (out of band).
+    try:
+        _register_control_cli(ctx)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("hermesultracode: control-plane CLI not registered: %s", exc)
+
     # /ultracode slash command — the explicit, reliable way to delegate through the gate.
     try:
         ctx.register_command(
@@ -555,6 +562,130 @@ def _apply_delegation_block(base_url: str, model: str) -> None:
         fh.write(block)
     print(f"  ✓ appended delegation block to {cfg_path} (backup: {backup}).")
     print("  Restart Hermes (or `hermes gateway restart`) to run subagents locally.")
+
+
+def _roster_path() -> str:
+    return os.environ.get(
+        "HERMESULTRACODE_ROSTER",
+        os.path.join(os.path.expanduser("~"), ".hermes", "hermesultracode", "roster.yaml"),
+    )
+
+
+_PROVIDER_LAB = {
+    "anthropic": "anthropic", "openai": "openai", "codex": "openai", "xai": "xai",
+    "grok": "xai", "google": "google", "gemini": "google", "openrouter": "openrouter",
+}
+
+
+def _provider_lab(provider: str, base_url: str = "") -> str:
+    if any(h in (base_url or "") for h in ("localhost", "127.0.0.1")):
+        return "local"
+    p = (provider or "").lower()
+    for key, lab in _PROVIDER_LAB.items():
+        if key in p:
+            return lab
+    return p or "unknown"
+
+
+def _register_control_cli(ctx) -> None:
+    """`hermes ultracode-roster | ultracode-reconcile | ultracode-setup`. CLI ONLY — the
+    profile/credential control plane is deliberately NOT an agent tool (invariant #10). All
+    Hermes coupling is lazy so this registers even outside a live Hermes process."""
+
+    def roster_handler(_args) -> None:
+        _ensure_importable()
+        from core.roster import load_roster
+        path = _roster_path()
+        if not os.path.exists(path):
+            print(f"  no roster at {path} — run `hermes ultracode-setup` first.")
+            return
+        r = load_roster(path)
+        print(f"\n  roster: {path}")
+        print(f"  orchestrator : {r.orchestrator.profile}  (lab={r.orchestrator.lab})")
+        rev = f"{r.reviewer.profile} (lab={r.reviewer.lab})" if r.reviewer else "none"
+        print(f"  reviewer     : {rev}")
+        print(f"  reviewer_mode: {r.reviewer_mode}      budget: {r.budget_mode}")
+        print("  providers    : " + ", ".join(f"{p.profile}[{p.lab}]" for p in r.providers))
+        for tier, names in r.routing.items():
+            print(f"    {tier:<14} -> {', '.join(names) or '(none — fails closed)'}")
+        print()
+
+    def reconcile_handler(_args) -> None:
+        _ensure_importable()
+        from adapters.profiles import HermesProfileBackend, reconcile
+        from core.roster import load_roster
+        path = _roster_path()
+        if not os.path.exists(path):
+            print(f"  no roster at {path} — run `hermes ultracode-setup` first.")
+            return
+        rep = reconcile(load_roster(path), HermesProfileBackend())
+        print(f"\n  created : {', '.join(rep.created) or '-'}")
+        print(f"  ready   : {', '.join(rep.ready) or '-'}")
+        for r in rep.not_ready:
+            print(f"  NOT READY: {r.profile} — {r.reason}")
+        for e in rep.errors:
+            print(f"  error   : {e}")
+        print(f"\n  {'✓ all declared profiles ready' if rep.ok() else '✗ reconciliation incomplete (fail-closed)'}\n")
+
+    def setup_handler(_args) -> None:
+        _ensure_importable()
+        from adapters.profiles import HermesProfileBackend, reconcile
+        from adapters.wizard import ProviderChoice, plan_roster
+        from core.roster import Roster
+        b = HermesProfileBackend()
+        try:
+            from hermes_cli import profiles as _p
+            infos = _p.list_profiles()
+        except Exception:  # noqa: BLE001
+            infos = []
+        choices = []
+        for i in infos:
+            name = getattr(i, "name", "")
+            if not name or not b.auth_ok(name):
+                continue
+            lab = _provider_lab(getattr(i, "provider", ""), getattr(i, "base_url", ""))
+            choices.append(ProviderChoice(name, getattr(i, "provider", "") or name, lab,
+                                          model=getattr(i, "model", None), flat_rate=True))
+        if not choices:
+            print("  No authenticated providers detected. Run `hermes auth add <provider>` "
+                  "(or `hermes setup`), then re-run `hermes ultracode-setup`.")
+            return
+        orch = choices[0]   # recommend a frontier here; single provider is a complete setup
+        reviewer = next((c for c in choices if c.lab != orch.lab), None)
+        roster_dict = plan_roster(orch, choices,
+                                  reviewer_profile=reviewer.profile if reviewer else None)
+        r = Roster.from_dict(roster_dict)
+        _write_roster(roster_dict, _roster_path())
+        print(f"\n  reviewer_mode: {r.reviewer_mode}  "
+              f"({'cross-lab review active' if r.reviewer else 'single-lab — review off, tighten-only'})")
+        rep = reconcile(r, b)
+        print(f"  reconcile: {'✓ ready' if rep.ok() else '✗ see NOT READY below'}")
+        for nr in rep.not_ready:
+            print(f"    NOT READY: {nr.profile} — {nr.reason}")
+        print(f"\n  wrote {_roster_path()} — edit the tier->model slots (operator-supplied), "
+              "then `hermes ultracode-reconcile`.\n")
+
+    for name, fn, desc in (
+        ("ultracode-roster", roster_handler, "Show the resolved HermesUltraCode roster + reviewer mode."),
+        ("ultracode-reconcile", reconcile_handler, "Reconcile provider profiles against the roster (out of band)."),
+        ("ultracode-setup", setup_handler, "Set up roster + provider profiles from authenticated providers."),
+    ):
+        ctx.register_cli_command(name, help=desc, setup_fn=lambda sp: None, handler_fn=fn,
+                                 description=desc)
+
+
+def _write_roster(roster_dict: dict, path: str) -> None:
+    import shutil
+
+    import yaml
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if os.path.exists(path):
+        shutil.copyfile(path, path + ".bak")
+    header = ("# HermesUltraCode roster — generated by `hermes ultracode-setup`.\n"
+              "# tier->model slots under each provider's `tiers:` are OPERATOR-SUPPLIED.\n\n")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(header)
+        yaml.safe_dump(roster_dict, fh, sort_keys=False, default_flow_style=False)
 
 
 # ---------------------------------------------------------------------------
