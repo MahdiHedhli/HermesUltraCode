@@ -1,0 +1,54 @@
+# HermesUltraCode roster — the DECLARED source of truth for provider topology + routing.
+# Versioned, reviewed, the audit surface. `hermes ultracode-setup` writes a real roster from
+# your authenticated providers; this file shows the shape.
+#
+# The tier -> model pairs under each provider's `tiers:` are OPERATOR-SUPPLIED — they are your
+# cost/capability and ISO-control business decision. Fill the <SLOT> placeholders with model
+# slugs your profile is AUTHENTICATED to serve. HermesUltraCode never invents them, and it
+# validates a tagged model against the profile's live catalog before dispatch (fail-closed).
+
+orchestrator: { profile: orchestrator, lab: anthropic }   # the reasoning brain: plans, decomposes, judges
+reviewer:     { profile: codex }                          # lab is inherited from its provider; MUST differ from orchestrator.lab
+reviewer_mode: cross_lab                                  # cross_lab | same_lab_flagged | off  (resolved by the wizard)
+#   cross_lab        -> two+ labs; the reviewer cannot share the orchestrator's blind spots (recommended)
+#   same_lab_flagged -> one lab; review runs but is flagged WEAKER on the dashboard
+#   off              -> one lab; tighten-only, review disabled
+# On a single-provider install set `reviewer: null` and `reviewer_mode: off` (a complete, valid setup).
+
+budget_mode: subscription-first        # prefer flat-rate seats until rate-limited, then spill to metered
+
+providers:
+  - profile: claude
+    provider: <PROVIDER-ID>            # your Hermes provider id for this connection
+    lab: anthropic
+    flat_rate: true                    # a subscription seat (preferred under subscription-first)
+    description: "frontier reasoning + judgement"
+    tiers: { cheap: <SLOT>, heavy: <SLOT> }     # <-- operator-supplied model slugs
+
+  - profile: codex
+    provider: <PROVIDER-ID>
+    lab: openai
+    flat_rate: true
+    description: "second lab; unlocks the cross-lab reviewer"
+    tiers: { cheap: <SLOT>, heavy: <SLOT> }
+
+  # add xai / gemini the same way …
+
+  - profile: gemma-local
+    provider: <LOCAL-PROVIDER>         # e.g. an LM Studio / Ollama OpenAI-compatible connection
+    lab: local
+    model: <LOCAL-MODEL-SLUG>          # pinned local default (e.g. google/gemma-4-31b)
+    flat_rate: true
+    description: "cheap bulk / throwaway — the local floor for low-risk work"
+
+  # optional aggregator:
+  # - profile: pareto
+  #   provider: openrouter
+  #   model: openrouter/pareto-code
+  #   min_coding_score: 0.65
+
+routing:                               # per RISK-tier floor: candidate profiles, cheapest-first
+  trivial:        [ gemma-local, codex ]     # local is the bottom rung for low-risk work
+  standard:       [ codex, claude ]
+  elevated:       [ claude ]                  # floor higher; local excluded where a subtle error is asymmetrically costly
+  merge_adjacent: [ claude ]                  # frontier floor; strictest review
