@@ -7,6 +7,7 @@ import unittest
 from adapters.kanban_lane import (
     Outcome,
     build_spawn_argv,
+    plan_enqueue,
     poll_once,
     process_claimed_task,
 )
@@ -161,6 +162,21 @@ class ProcessTest(unittest.TestCase):
             roster(), g, k, pb)
         self.assertEqual(out.action, "spawned")
         self.assertEqual(k.spawns[0][1], "native/model")   # native task.model overrides the tag
+
+
+class EnqueueTest(unittest.TestCase):
+    def test_ok_when_a_ready_profile_serves(self):
+        d = plan_enqueue("standard", roster(), PB(auth={"claude"}, served={"claude": ["x"]}))
+        self.assertTrue(d.ok)
+        self.assertEqual(d.profile, "claude")
+        self.assertTrue(d.tag)
+
+    def test_block_when_unroutable(self):
+        self.assertFalse(plan_enqueue("standard", roster(), PB()).ok)     # nothing authed
+
+    def test_block_when_no_candidate_for_tier(self):
+        pb = PB(auth={"claude"}, served={"claude": ["x"]})
+        self.assertFalse(plan_enqueue("merge_adjacent", roster(), pb).ok)  # no routing list
 
 
 class PollTest(unittest.TestCase):

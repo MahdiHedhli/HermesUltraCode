@@ -19,8 +19,8 @@ from typing import Iterable, Protocol
 
 from adapters.profiles import ProfileBackend, Readiness, validate_ready
 from core.roster import Roster
-from core.routing import Route, escalate, resolve
-from core.task_tag import RouteTag, parse_tag
+from core.routing import Route, RoutingError, escalate, resolve, route
+from core.task_tag import RouteTag, parse_tag, serialize_tag
 from core.tiering import DispatchMeta
 
 LANE_ASSIGNEE = "ultracode"
@@ -139,6 +139,34 @@ def process_claimed_task(task, roster: Roster, gate, kanban: KanbanBackend,
     pid = kanban.spawn(profile, model, result.dispatched_prompt, getattr(task, "workspace", None))
     kanban.add_comment(task.id, LANE_ASSIGNEE, _verdict_comment(result, tag.tier, model, spawned=True))
     return Outcome("spawned", "dispatched", pid=pid, profile=profile, model=model)
+
+
+@dataclass(frozen=True)
+class EnqueueDecision:
+    ok: bool
+    tier: str
+    reason: str = ""
+    profile: str | None = None
+    model: str | None = None
+    tag: str | None = None
+
+
+def plan_enqueue(tier: str, roster: Roster, pbackend: ProfileBackend) -> EnqueueDecision:
+    """Fail-closed enqueue gate (B7): route the tier, then require a READY profile that
+    serves the resolved model, escalating across the tier's candidates. Returns the tag to
+    write, or ``ok=False`` with a reason to reject BEFORE the task ever reaches ``ready``
+    (never dispatch on a fallback). Pure over the backend."""
+    try:
+        r = route(tier, roster)
+    except RoutingError as exc:
+        return EnqueueDecision(False, tier, f"no candidate clears the {tier!r} floor: {exc}")
+    prof = roster.provider(r.profile)
+    model = resolve(prof, tier)
+    profile, model2, readiness = _pick_ready(RouteTag(r.profile, tier, model), roster, pbackend)
+    if profile is None:
+        return EnqueueDecision(False, tier, f"unroutable: {readiness.reason}", model=model)
+    return EnqueueDecision(True, tier, "ready", profile, model2,
+                           serialize_tag(profile, tier, model2))
 
 
 def poll_once(roster: Roster, gate, kanban: KanbanBackend, pbackend: ProfileBackend,
