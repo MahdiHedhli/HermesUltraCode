@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-black?style=flat-square)](LICENSE)
 &nbsp;![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)
 &nbsp;![Runtime deps: 0](https://img.shields.io/badge/runtime_deps-0-2ea043?style=flat-square)
-&nbsp;![Tests: 208 passing](https://img.shields.io/badge/tests-208_passing-2ea043?style=flat-square)
+&nbsp;![Tests: 270 passing](https://img.shields.io/badge/tests-270_passing-2ea043?style=flat-square)
 &nbsp;![Hermes plugin + skill](https://img.shields.io/badge/Hermes-plugin_%2B_skill-7c3aed?style=flat-square)
 &nbsp;![Degrades: fail-closed](https://img.shields.io/badge/degrades-fail--closed-e5604d?style=flat-square)
 
@@ -74,7 +74,7 @@ orchestrator base prompt ─▶ [ GATE ] ─▶ dispatched prompt ─▶ worker
   catches the blind spots a same-lineage model waves through. ([more ↓](#cross-lab-review))
 - 🧾 **Audited like evidence** — one immutable, secret-redacted row per dispatch;
   `UPDATE`/`DELETE` blocked at the database; JSON/CSV export.
-- 🪶 **Zero runtime dependencies** — stdlib-only core, **208 offline tests**, the model
+- 🪶 **Zero runtime dependencies** — stdlib-only core, **270 offline tests**, the model
   provider mocked.
 
 ## The eight non-negotiable invariants
@@ -420,6 +420,60 @@ hermes skills install MahdiHedhli/skills/neckbeard     # minimalism ruleset
 > `register(ctx)` entry) are the only Hermes-coupled files; the gate `core/` stays
 > portable and Hermes-free. To embed the gate without the plugin, drive
 > `core.gate.Gate.review_and_dispatch(goal, meta)` directly.
+
+## Kanban worker lane + profile routing
+
+A second front door onto the same gate: a **Kanban worker lane** that routes each task to a
+**cheapest-capable provider profile** and dispatches it through the gate. The topology is a
+reviewed **roster** (`roster.yaml`, the audit surface), and it runs on its **own dedicated
+board** so a poller bug or a compromised worker prompt is contained to ultracode work.
+
+```yaml
+orchestrator: { profile: orchestrator, lab: anthropic }   # plans / decomposes / judges
+reviewer:     { profile: codex }                          # lab MUST differ from orchestrator (cross-lab)
+reviewer_mode: cross_lab                                  # cross_lab | same_lab_flagged | off (named + shown)
+board: ultracode                                          # dedicated board = blast-radius containment
+budget_mode: subscription-first
+providers:
+  - { profile: gemma-local, lab: local, model: <slug>, flat_rate: true }   # the local floor
+  - { profile: claude, lab: anthropic, tiers: { cheap: <SLOT>, heavy: <SLOT> } }  # OPERATOR-supplied
+routing:                                                  # per RISK tier: candidate profiles, cheapest-first
+  trivial:        [ gemma-local ]
+  standard:       [ claude ]
+  elevated:       [ claude ]                              # local risk-gated OFF high tiers
+  merge_adjacent: [ claude ]
+```
+
+**Flow:** the orchestrator classifies a task's **risk tier**, the router (`core/routing.py`, a
+pure table — no LLM) picks the cheapest profile clearing that tier's floor, the task is tagged
+`(profile, tier[, model])` and assigned to the `ultracode` lane. A plugin-owned **poller**
+(`adapters/kanban_lane.py`) claims each ready task, runs the **gate**, and either **blocks**
+(`review-required`) or spawns `hermes -p <profile> [-m <model>] chat` — owning the TTL and
+terminal transitions. Every hop **fails closed**: an unauthenticated/under-served profile, a
+review block, or any reviewer error blocks the task; it never dispatches on a fallback.
+
+Control plane (`hermes ultracode-setup | ultracode-reconcile | ultracode-roster`) is **CLI
+only, never an agent tool** — task text is attacker-controllable and must never steer profile
+or credential creation. Reconciliation is **match-don't-make** (create-if-absent, never writes
+a credential). A single authenticated provider is a **complete setup** (orchestrator + worker +
+reviewer in one); the reviewer mode is always resolved to a **named** value, and a same-lab (or
+same-lab-**council**) reviewer can never present as cross-lab.
+
+The dashboard **Roster** tab makes the live reviewer mode prominent and shows the topology,
+routing, and per-profile readiness:
+
+<p align="center">
+  <img src="docs/dashboard-tab-roster.png" alt="The Roster tab — live cross-lab reviewer badge, topology, risk-tier routing, and fail-closed profile readiness" width="860">
+</p>
+
+**Ships today vs deferred.** Provider routing, the local floor, the gate, the dedicated board,
+and fail-closed enqueue all work now. **Per-task model-tier selection** (Sonnet-vs-Opus *within*
+a provider) is deferred until the upstream **Part A** field lands — `core.routing.resolve()` is
+a stub returning the profile default, on the same call path, so filling it later is a swap not a
+refactor. Part A (a nullable `model` on the Kanban task, threaded into the dispatcher spawn) is
+a tight diff on a fork of `hermes-agent`; **[MoA (Mixture of Agents)](https://github.com/NousResearch/hermes-agent)**
+composes as a high-quality *tier candidate* (an MoA preset is just a roster profile the router
+can route elevated/merge work to) — deliberately not rebuilt here.
 
 ## Neckbeard discipline
 
