@@ -587,6 +587,17 @@ def _provider_lab(provider: str, base_url: str = "") -> str:
     return p or "unknown"
 
 
+def _ensure_board(slug: str) -> None:
+    """Create-if-absent the dedicated Kanban board for the given roster slug (Change 1: board =
+    hard blast-radius containment). Idempotent — Hermes ``create_board`` has mkdir -p semantics
+    and never clobbers an existing board's data. Lazy + best-effort."""
+    try:
+        from hermes_cli import kanban_db
+        kanban_db.create_board(slug)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("hermesultracode: board ensure skipped: %s", exc)
+
+
 def _register_control_cli(ctx) -> None:
     """`hermes ultracode-roster | ultracode-reconcile | ultracode-setup`. CLI ONLY — the
     profile/credential control plane is deliberately NOT an agent tool (invariant #10). All
@@ -618,7 +629,9 @@ def _register_control_cli(ctx) -> None:
         if not os.path.exists(path):
             print(f"  no roster at {path} — run `hermes ultracode-setup` first.")
             return
-        rep = reconcile(load_roster(path), HermesProfileBackend())
+        roster_obj = load_roster(path)
+        _ensure_board(roster_obj.board)                # self-healing: create-if-absent
+        rep = reconcile(roster_obj, HermesProfileBackend())
         _write_reconcile_status(rep, path)
         print(f"\n  created : {', '.join(rep.created) or '-'}")
         print(f"  ready   : {', '.join(rep.ready) or '-'}")
@@ -657,7 +670,8 @@ def _register_control_cli(ctx) -> None:
                                   reviewer_profile=reviewer.profile if reviewer else None)
         r = Roster.from_dict(roster_dict)
         _write_roster(roster_dict, _roster_path())
-        print(f"\n  reviewer_mode: {r.reviewer_mode}  "
+        _ensure_board(r.board)                         # dedicated board, create-if-absent (idempotent)
+        print(f"\n  board: {r.board}   reviewer_mode: {r.reviewer_mode}  "
               f"({'cross-lab review active' if r.reviewer else 'single-lab — review off, tighten-only'})")
         rep = reconcile(r, b)
         print(f"  reconcile: {'✓ ready' if rep.ok() else '✗ see NOT READY below'}")

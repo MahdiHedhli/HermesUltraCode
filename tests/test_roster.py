@@ -52,6 +52,10 @@ class RosterTest(unittest.TestCase):
         with self.assertRaises(RosterError):
             Roster.from_dict(base(routing={"trivial": ["ghost-profile"]}))
 
+    def test_board_defaults_to_ultracode_and_is_configurable(self):
+        self.assertEqual(Roster.from_dict(base()).board, "ultracode")
+        self.assertEqual(Roster.from_dict(base(board="uc-prod")).board, "uc-prod")
+
     def test_resolve_reviewer_mode_helper(self):
         o = Endpoint("orch", "anthropic")
         self.assertEqual(resolve_reviewer_mode(o, Endpoint("r", "xai"), requested=None), REVIEWER_CROSS_LAB)
@@ -60,6 +64,41 @@ class RosterTest(unittest.TestCase):
         self.assertEqual(resolve_reviewer_mode(o, None, requested=None), REVIEWER_OFF)
         with self.assertRaises(RosterError):
             resolve_reviewer_mode(o, Endpoint("r", "anthropic"), requested="cross_lab")
+
+
+class CouncilLabTest(unittest.TestCase):
+    def test_labs_of_includes_aggregator(self):
+        from core.roster import Council, labs_of
+        ep = Endpoint("rev", council=Council(members=("openai", "deepseek"), aggregator="anthropic"))
+        self.assertEqual(labs_of(ep), frozenset({"openai", "deepseek", "anthropic"}))
+        self.assertEqual(labs_of(Endpoint("plain", lab="xai")), frozenset({"xai"}))
+        self.assertEqual(labs_of(None), frozenset())
+
+    def test_council_reviewer_disjoint_passes(self):
+        # orch anthropic; council reviewer (openai, deepseek + aggregator xai) — disjoint => cross_lab
+        r = Roster.from_dict(base(
+            orchestrator={"profile": "orch", "lab": "anthropic"},
+            reviewer={"profile": "council-rev",
+                      "council": {"members": ["openai", "deepseek"], "aggregator": "xai"}}))
+        self.assertEqual(r.reviewer_mode, REVIEWER_CROSS_LAB)
+
+    def test_council_aggregator_collision_fails(self):
+        # THE test: members differ (openai/deepseek) but the AGGREGATOR (which decides) matches
+        # the orchestrator's lab (anthropic) -> must fail. This is why the check is a SET op.
+        with self.assertRaises(RosterError):
+            Roster.from_dict(base(
+                orchestrator={"profile": "orch", "lab": "anthropic"},
+                reviewer={"profile": "council-rev",
+                          "council": {"members": ["openai", "deepseek"], "aggregator": "anthropic"}},
+                reviewer_mode="cross_lab"))
+
+    def test_council_orchestrator_collision_also_fails(self):
+        # Symmetric: a COUNCIL orchestrator whose aggregator equals the plain reviewer's lab.
+        with self.assertRaises(RosterError):
+            Roster.from_dict(base(
+                orchestrator={"profile": "orch", "council": {"members": ["openai"], "aggregator": "xai"}},
+                reviewer={"profile": "xai", "lab": "xai"},
+                reviewer_mode="cross_lab"))
 
 
 if __name__ == "__main__":

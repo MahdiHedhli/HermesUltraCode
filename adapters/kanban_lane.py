@@ -32,8 +32,13 @@ LANE_ASSIGNEE = "ultracode"
 
 
 class KanbanBackend(Protocol):
-    def list_ready(self) -> list: ...                       # ready tasks assigned to the lane
+    # Every backend is scoped to ONE board (the roster's board slug); all ops below act on it.
+    board: str
+    def ensure_board(self) -> None: ...                     # create-if-absent (idempotent)
+    def list_ready(self) -> list: ...                       # ready lane tasks on THIS board only
     def claim(self, task_id: str, claimer: str) -> bool: ...  # atomic ready->running
+    def create(self, goal: str, tag: str) -> str: ...       # create a lane task on THIS board
+    def open_assignees(self) -> set: ...                    # assignees of non-terminal tasks on THIS board
     def add_comment(self, task_id: str, author: str, body: str) -> None: ...
     def block(self, task_id: str, reason: str) -> bool: ...
     def spawn(self, profile: str, model: str | None, prompt: str, workspace: str | None) -> int | None: ...
@@ -169,6 +174,18 @@ def plan_enqueue(tier: str, roster: Roster, pbackend: ProfileBackend) -> Enqueue
                            serialize_tag(profile, tier, model2))
 
 
+def create_ultracode_task(goal: str, tier: str, roster: Roster, kanban: KanbanBackend,
+                          pbackend: ProfileBackend):
+    """The lane's create path: fail-closed enqueue validation, then create the task on the
+    LANE'S BOARD (``kanban.board`` == ``roster.board``, never a literal) with the route tag.
+    Returns ``(task_id, EnqueueDecision)``; ``task_id`` is None when validation rejects it —
+    an unroutable task is never landed."""
+    decision = plan_enqueue(tier, roster, pbackend)
+    if not decision.ok:
+        return None, decision
+    return kanban.create(goal, decision.tag), decision
+
+
 def poll_once(roster: Roster, gate, kanban: KanbanBackend, pbackend: ProfileBackend,
               *, claimer: str = LANE_ASSIGNEE) -> list[Outcome]:
     """One poll pass: claim each ready lane task, then gate+spawn/block it. Never raises out
@@ -197,27 +214,52 @@ class HermesKanbanBackend:
     """Production backend over ``hermes_cli.kanban_db`` (+ a subprocess worker spawn). Lazy
     imports so this module loads without Hermes; never exercised by the offline tests."""
 
-    def __init__(self, conn_factory, *, workspace_root: str | None = None):
-        self._conn_factory = conn_factory      # callable -> sqlite connection to the board
+    def __init__(self, board: str, *, workspace_root: str | None = None):
+        # Scoped to the roster's board slug (NOT a literal). Every DB op connects to this
+        # board's own SQLite DB, so a task on any other board is physically invisible here.
+        self.board = board
         self._workspace_root = workspace_root
+
+    def _conn(self):
+        from hermes_cli import kanban_db
+        return kanban_db.connect(board=self.board)
+
+    def ensure_board(self) -> None:
+        from hermes_cli import kanban_db
+        kanban_db.create_board(self.board)     # idempotent (mkdir -p semantics)
 
     def list_ready(self) -> list:
         from hermes_cli import kanban_db
-        conn = self._conn_factory()
-        return [t for t in kanban_db.list_tasks(conn, status="ready")
+        return [t for t in kanban_db.list_tasks(self._conn(), status="ready")
                 if getattr(t, "assignee", "") == LANE_ASSIGNEE]
 
     def claim(self, task_id: str, claimer: str) -> bool:
         from hermes_cli import kanban_db
-        return bool(kanban_db.claim_task(self._conn_factory(), task_id, claimer=claimer))
+        return bool(kanban_db.claim_task(self._conn(), task_id, claimer=claimer))
+
+    def create(self, goal: str, tag: str) -> str:
+        from hermes_cli import kanban_db
+        conn = self._conn()
+        tid = kanban_db.create_task(conn, title=goal, assignee=LANE_ASSIGNEE)
+        kanban_db.add_comment(conn, tid, author=LANE_ASSIGNEE, body=tag)
+        return tid
+
+    def open_assignees(self) -> set:
+        from hermes_cli import kanban_db
+        conn = self._conn()
+        out: set[str] = set()
+        for status in ("todo", "ready", "running", "triage", "blocked"):
+            out |= {getattr(t, "assignee", "") for t in kanban_db.list_tasks(conn, status=status)
+                    if getattr(t, "assignee", "")}
+        return out
 
     def add_comment(self, task_id: str, author: str, body: str) -> None:
         from hermes_cli import kanban_db
-        kanban_db.add_comment(self._conn_factory(), task_id, author=author, body=body)
+        kanban_db.add_comment(self._conn(), task_id, author=author, body=body)
 
     def block(self, task_id: str, reason: str) -> bool:
         from hermes_cli import kanban_db
-        return bool(kanban_db.block_task(self._conn_factory(), task_id, reason=reason))
+        return bool(kanban_db.block_task(self._conn(), task_id, reason=reason))
 
     def spawn(self, profile: str, model: str | None, prompt: str, workspace: str | None) -> int | None:
         import subprocess

@@ -94,6 +94,7 @@ def roster() -> dict:
     return {
         "has_roster": True,
         "reviewer_mode": r.reviewer_mode,
+        "board": r.board,
         "orchestrator": {"profile": r.orchestrator.profile, "lab": r.orchestrator.lab},
         "reviewer": ({"profile": r.reviewer.profile, "lab": r.reviewer.lab} if r.reviewer else None),
         "budget_mode": r.budget_mode,

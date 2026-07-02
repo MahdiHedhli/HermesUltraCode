@@ -20,17 +20,48 @@ REVIEWER_SAME_LAB_FLAGGED = "same_lab_flagged"
 REVIEWER_OFF = "off"
 REVIEWER_MODES = frozenset({REVIEWER_CROSS_LAB, REVIEWER_SAME_LAB_FLAGGED, REVIEWER_OFF})
 
+# The dedicated Kanban board ultracode work is scoped to (hard isolation boundary). Declared
+# here as the default; every surface reads roster.board — it is NEVER a literal in the poller
+# or adapters.
+DEFAULT_BOARD = "ultracode"
+
 
 class RosterError(ValueError):
     """Raised when a roster is malformed or violates the reviewer-lab invariant."""
 
 
 @dataclass(frozen=True)
+class Council:
+    """A MoA / council endpoint: several member labs plus an aggregator lab. The aggregator
+    is the model that actually DECIDES, so it counts toward the endpoint's lab set — a diverse
+    council whose aggregator shares the orchestrator's lab still hands the verdict back to the
+    orchestrator's blind spots."""
+
+    members: tuple[str, ...] = ()
+    aggregator: str = ""
+
+
+@dataclass(frozen=True)
 class Endpoint:
-    """The orchestrator or reviewer: a profile plus the lab it runs on."""
+    """The orchestrator or reviewer: a profile plus the lab(s) it runs on — a single ``lab``
+    for a plain model, or a ``council`` (members + aggregator) for a MoA preset."""
 
     profile: str
     lab: str = ""
+    council: Council | None = None
+
+
+def labs_of(endpoint: "Endpoint | None") -> frozenset[str]:
+    """The full set of labs an endpoint spans. A plain model is the singleton ``{lab}``; a
+    COUNCIL is ``set(members) | {aggregator}`` — the aggregator is ALWAYS included."""
+    if endpoint is None:
+        return frozenset()
+    if endpoint.council is not None:
+        labs = set(endpoint.council.members)
+        if endpoint.council.aggregator:
+            labs.add(endpoint.council.aggregator)
+        return frozenset(x for x in labs if x)
+    return frozenset({endpoint.lab}) if endpoint.lab else frozenset()
 
 
 @dataclass(frozen=True)
@@ -57,6 +88,7 @@ class Roster:
     providers: tuple[ProviderProfile, ...]
     budget_mode: str = "subscription-first"
     routing: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    board: str = DEFAULT_BOARD
 
     def provider(self, name: str) -> ProviderProfile | None:
         for p in self.providers:
@@ -66,18 +98,13 @@ class Roster:
 
     @property
     def labs(self) -> set[str]:
-        labs = {self.orchestrator.lab} | {p.lab for p in self.providers if p.lab}
+        labs = set(labs_of(self.orchestrator)) | {p.lab for p in self.providers if p.lab}
         return {x for x in labs if x}
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "Roster":
         if not isinstance(d, dict):
             raise RosterError("roster must be a mapping")
-        orch_d = d.get("orchestrator") or {}
-        orchestrator = Endpoint(profile=str(orch_d.get("profile") or "").strip(),
-                                lab=str(orch_d.get("lab") or "").strip().lower())
-        if not orchestrator.profile:
-            raise RosterError("orchestrator.profile is required")
 
         providers = tuple(
             ProviderProfile(
@@ -94,16 +121,10 @@ class Roster:
             if isinstance(p, dict) and str(p.get("profile") or "").strip()
         )
 
-        rev_d = d.get("reviewer")
-        reviewer = None
-        if isinstance(rev_d, dict) and str(rev_d.get("profile") or "").strip():
-            rev_profile = str(rev_d["profile"]).strip()
-            # reviewer lab: explicit, else inherited from its provider profile
-            rev_lab = str(rev_d.get("lab") or "").strip().lower()
-            if not rev_lab:
-                match = next((p for p in providers if p.profile == rev_profile), None)
-                rev_lab = match.lab if match else ""
-            reviewer = Endpoint(profile=rev_profile, lab=rev_lab)
+        orchestrator = _parse_endpoint(d.get("orchestrator") or {}, providers)
+        if orchestrator is None or not orchestrator.profile:
+            raise RosterError("orchestrator.profile is required")
+        reviewer = _parse_endpoint(d.get("reviewer") or {}, providers)
 
         routing: dict[str, tuple[str, ...]] = {}
         for tier, names in (d.get("routing") or {}).items():
@@ -118,6 +139,7 @@ class Roster:
             providers=providers,
             budget_mode=str(d.get("budget_mode") or "subscription-first").strip(),
             routing=routing,
+            board=(str(d.get("board") or "").strip() or DEFAULT_BOARD),
         )
         roster.validate()
         return roster
@@ -125,15 +147,20 @@ class Roster:
     def validate(self) -> None:
         if self.reviewer_mode not in REVIEWER_MODES:
             raise RosterError(f"reviewer_mode must be one of {sorted(REVIEWER_MODES)}")
-        # Invariant #8: a cross-lab reviewer must exist and differ in lab from the orchestrator.
+        # Invariant #8, council-safe: the reviewer's lab SET must be disjoint from the
+        # orchestrator's. labs_of() includes a council's aggregator, so a diverse council whose
+        # aggregator matches the orchestrator's lab (the model that actually decides) fails —
+        # it would hand the verdict straight back to the orchestrator's blind spots.
         if self.reviewer_mode == REVIEWER_CROSS_LAB:
             if self.reviewer is None:
                 raise RosterError("reviewer_mode=cross_lab requires a reviewer")
-            if not self.reviewer.lab or self.reviewer.lab == self.orchestrator.lab:
+            r_labs, o_labs = labs_of(self.reviewer), labs_of(self.orchestrator)
+            collision = r_labs & o_labs
+            if not r_labs or collision:
                 raise RosterError(
-                    "reviewer_mode=cross_lab but reviewer lab "
-                    f"({self.reviewer.lab!r}) matches or is missing vs orchestrator "
-                    f"({self.orchestrator.lab!r}) — a same-lab reviewer must never present as cross-lab"
+                    f"reviewer_mode=cross_lab but reviewer labs {sorted(r_labs)} intersect the "
+                    f"orchestrator's {sorted(o_labs)} (collision: {sorted(collision)}) — a same-lab "
+                    "reviewer (including a council whose aggregator matches) must never present as cross-lab"
                 )
         # routing tiers must reference declared provider profiles
         declared = {p.profile for p in self.providers}
@@ -151,14 +178,33 @@ def resolve_reviewer_mode(orchestrator: Endpoint, reviewer: Endpoint | None, *,
     ``requested`` mode is honored only if consistent with the labs; otherwise it is refused."""
     if reviewer is None or not reviewer.profile:
         return REVIEWER_OFF
-    cross_ok = bool(reviewer.lab) and reviewer.lab != orchestrator.lab
+    r_labs, o_labs = labs_of(reviewer), labs_of(orchestrator)
+    cross_ok = bool(r_labs) and r_labs.isdisjoint(o_labs)   # council-safe: sets, aggregator included
     if requested:
         req = requested.strip().lower()
         if req == REVIEWER_CROSS_LAB and not cross_ok:
-            raise RosterError("cannot request cross_lab: reviewer shares the orchestrator's lab")
+            raise RosterError("cannot request cross_lab: reviewer labs intersect the orchestrator's")
         if req in REVIEWER_MODES:
             return req
     return REVIEWER_CROSS_LAB if cross_ok else REVIEWER_SAME_LAB_FLAGGED
+
+
+def _parse_endpoint(d: dict[str, Any], providers: tuple[ProviderProfile, ...]) -> Endpoint | None:
+    """Parse an orchestrator/reviewer entry: either a plain ``lab`` (inherited from its
+    provider profile if omitted) or a ``council: {members: [...], aggregator: <lab>}`` block."""
+    if not isinstance(d, dict) or not str(d.get("profile") or "").strip():
+        return None
+    profile = str(d["profile"]).strip()
+    council_d = d.get("council")
+    if isinstance(council_d, dict) and (council_d.get("members") or council_d.get("aggregator")):
+        members = tuple(str(m).strip().lower() for m in (council_d.get("members") or []) if str(m).strip())
+        aggregator = str(council_d.get("aggregator") or "").strip().lower()
+        return Endpoint(profile=profile, council=Council(members=members, aggregator=aggregator))
+    lab = str(d.get("lab") or "").strip().lower()
+    if not lab:
+        match = next((p for p in providers if p.profile == profile), None)
+        lab = match.lab if match else ""
+    return Endpoint(profile=profile, lab=lab)
 
 
 def load_roster(path: str) -> Roster:

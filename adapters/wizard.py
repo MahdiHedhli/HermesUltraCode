@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from core.roster import (
+    DEFAULT_BOARD,
     REVIEWER_OFF,
     Endpoint,
     Roster,
@@ -50,6 +51,7 @@ def plan_roster(orchestrator: ProviderChoice, providers: list[ProviderChoice], *
                      if reviewer_ep else None),
         "reviewer_mode": mode,
         "budget_mode": budget_mode,
+        "board": DEFAULT_BOARD,
         "providers": [_provider_dict(p) for p in providers],
         "routing": default_routing(providers),
     }
