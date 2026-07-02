@@ -56,12 +56,14 @@ def labs_of(endpoint: "Endpoint | None") -> frozenset[str]:
     COUNCIL is ``set(members) | {aggregator}`` — the aggregator is ALWAYS included."""
     if endpoint is None:
         return frozenset()
+    labs: set[str] = set()
     if endpoint.council is not None:
-        labs = set(endpoint.council.members)
+        labs |= set(endpoint.council.members)
         if endpoint.council.aggregator:
             labs.add(endpoint.council.aggregator)
-        return frozenset(x for x in labs if x)
-    return frozenset({endpoint.lab}) if endpoint.lab else frozenset()
+    if endpoint.lab:                       # union a plain lab too (defense in depth; never dropped)
+        labs.add(endpoint.lab)
+    return frozenset(x for x in labs if x)
 
 
 @dataclass(frozen=True)
@@ -156,11 +158,14 @@ class Roster:
                 raise RosterError("reviewer_mode=cross_lab requires a reviewer")
             r_labs, o_labs = labs_of(self.reviewer), labs_of(self.orchestrator)
             collision = r_labs & o_labs
-            if not r_labs or collision:
+            # Fail closed on BOTH an intersection AND an unknown lab on either side — an
+            # un-lab'd orchestrator or reviewer can never be *certified* disjoint.
+            if not r_labs or not o_labs or collision:
                 raise RosterError(
-                    f"reviewer_mode=cross_lab but reviewer labs {sorted(r_labs)} intersect the "
-                    f"orchestrator's {sorted(o_labs)} (collision: {sorted(collision)}) — a same-lab "
-                    "reviewer (including a council whose aggregator matches) must never present as cross-lab"
+                    f"reviewer_mode=cross_lab but reviewer labs {sorted(r_labs)} vs orchestrator "
+                    f"{sorted(o_labs)} — cross-lab requires BOTH sides to declare known, disjoint labs "
+                    f"(collision: {sorted(collision)}). An unknown lab (incl. a council whose aggregator "
+                    "matches) can never present as cross-lab."
                 )
         # routing tiers must reference declared provider profiles
         declared = {p.profile for p in self.providers}
@@ -179,7 +184,8 @@ def resolve_reviewer_mode(orchestrator: Endpoint, reviewer: Endpoint | None, *,
     if reviewer is None or not reviewer.profile:
         return REVIEWER_OFF
     r_labs, o_labs = labs_of(reviewer), labs_of(orchestrator)
-    cross_ok = bool(r_labs) and r_labs.isdisjoint(o_labs)   # council-safe: sets, aggregator included
+    # council-safe (aggregator included) AND fail-closed: BOTH sides must have a known lab.
+    cross_ok = bool(r_labs) and bool(o_labs) and r_labs.isdisjoint(o_labs)
     if requested:
         req = requested.strip().lower()
         if req == REVIEWER_CROSS_LAB and not cross_ok:

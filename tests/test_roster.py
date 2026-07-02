@@ -92,6 +92,18 @@ class CouncilLabTest(unittest.TestCase):
                           "council": {"members": ["openai", "deepseek"], "aggregator": "anthropic"}},
                 reviewer_mode="cross_lab"))
 
+    def test_unknown_orchestrator_lab_cannot_certify_cross_lab(self):
+        # M1: an un-lab'd orchestrator must NOT let any reviewer certify as cross_lab (an
+        # unknown lab could BE the reviewer's lab). Fail closed, both explicit + resolved.
+        with self.assertRaises(RosterError):
+            Roster.from_dict(base(orchestrator={"profile": "orch"},      # no lab
+                                  reviewer={"profile": "xai", "lab": "xai"},
+                                  reviewer_mode="cross_lab"))
+        # and without an explicit mode it degrades DOWN, never up to cross_lab
+        r = Roster.from_dict(base(orchestrator={"profile": "orch"},
+                                  reviewer={"profile": "xai", "lab": "xai"}, reviewer_mode=""))
+        self.assertNotEqual(r.reviewer_mode, REVIEWER_CROSS_LAB)
+
     def test_council_orchestrator_collision_also_fails(self):
         # Symmetric: a COUNCIL orchestrator whose aggregator equals the plain reviewer's lab.
         with self.assertRaises(RosterError):
