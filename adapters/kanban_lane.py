@@ -210,38 +210,68 @@ def poll_once(roster: Roster, gate, kanban: KanbanBackend, pbackend: ProfileBack
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class _LaneTask:
+    """The shape ``process_claimed_task`` expects, adapted from a Hermes ``Task`` (which has
+    title/body and keeps comments in a separate table, and only gains ``model_override`` once
+    Part A merges)."""
+    id: str
+    goal: str
+    comments: str
+    model_override: str | None
+    workspace: str | None
+
+
 class HermesKanbanBackend:
     """Production backend over ``hermes_cli.kanban_db`` (+ a subprocess worker spawn). Lazy
-    imports so this module loads without Hermes; never exercised by the offline tests."""
+    imports so this module loads without Hermes; never exercised by the offline tests. One
+    cached connection to the board's own DB — a task on any other board is physically
+    invisible here (board = blast-radius containment)."""
 
     def __init__(self, board: str, *, workspace_root: str | None = None):
-        # Scoped to the roster's board slug (NOT a literal). Every DB op connects to this
-        # board's own SQLite DB, so a task on any other board is physically invisible here.
-        self.board = board
+        self.board = board                         # roster's slug, NOT a literal
         self._workspace_root = workspace_root
+        self._c = None
 
     def _conn(self):
-        from hermes_cli import kanban_db
-        return kanban_db.connect(board=self.board)
+        if self._c is None:
+            from hermes_cli import kanban_db
+            self._c = kanban_db.connect(board=self.board)
+        return self._c
 
     def ensure_board(self) -> None:
         from hermes_cli import kanban_db
-        kanban_db.create_board(self.board)     # idempotent (mkdir -p semantics)
+        kanban_db.create_board(self.board)         # idempotent (mkdir -p semantics)
+
+    def _enrich(self, task):
+        from hermes_cli import kanban_db
+        comments = "\n".join(c.body for c in kanban_db.list_comments(self._conn(), task.id))
+        goal = (task.title or "") + (("\n\n" + task.body) if task.body else "")
+        return _LaneTask(id=task.id, goal=goal, comments=comments,
+                         model_override=getattr(task, "model_override", None),
+                         workspace=task.workspace_path)
 
     def list_ready(self) -> list:
         from hermes_cli import kanban_db
-        return [t for t in kanban_db.list_tasks(self._conn(), status="ready")
-                if getattr(t, "assignee", "") == LANE_ASSIGNEE]
+        return [self._enrich(t)
+                for t in kanban_db.list_tasks(self._conn(), assignee=LANE_ASSIGNEE, status="ready")]
 
     def claim(self, task_id: str, claimer: str) -> bool:
         from hermes_cli import kanban_db
-        return bool(kanban_db.claim_task(self._conn(), task_id, claimer=claimer))
+        return kanban_db.claim_task(self._conn(), task_id, claimer=claimer) is not None
 
-    def create(self, goal: str, tag: str) -> str:
+    def create(self, goal: str, tag: str, *, ready: bool = True) -> str:
+        """Create on the lane's board, tag it, and (when validated) promote to ``ready`` for
+        the poller. Hermes only allows an initial status of running/blocked, and ``ready`` is
+        reached via ``promote_task`` (blocked→ready), so enqueue = create-blocked → tag →
+        promote. Leave ``ready=False`` to hold a task that failed enqueue validation."""
         from hermes_cli import kanban_db
         conn = self._conn()
-        tid = kanban_db.create_task(conn, title=goal, assignee=LANE_ASSIGNEE)
+        res = kanban_db.create_task(conn, title=goal, assignee=LANE_ASSIGNEE, initial_status="blocked")
+        tid = res if isinstance(res, str) else res.id
         kanban_db.add_comment(conn, tid, author=LANE_ASSIGNEE, body=tag)
+        if ready:
+            kanban_db.promote_task(conn, tid, actor=LANE_ASSIGNEE, reason="ultracode enqueue")
         return tid
 
     def open_assignees(self) -> set:
