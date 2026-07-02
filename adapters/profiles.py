@@ -162,11 +162,47 @@ def reap_managed(managed: Iterable[str], declared_static: Iterable[str],
 # ---------------------------------------------------------------------------
 
 
+# Provider credential / base-url env vars that could shadow a profile's own .env.
+_CRED_SUFFIXES = ("_API_KEY", "_BASE_URL", "_API_BASE", "_API_MODE", "_API_SECRET",
+                  "_SECRET_KEY", "_TOKEN")
+
+
+def _is_provider_cred_env(key: str) -> bool:
+    return key.upper().endswith(_CRED_SUFFIXES)
+
+
+def _parse_env_file(text: str) -> dict[str, str]:
+    """Minimal KEY=VALUE .env parse (comments/blanks ignored, surrounding quotes stripped)."""
+    out: dict[str, str] = {}
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        if k.strip():
+            out[k.strip()] = v.strip().strip('"').strip("'")
+    return out
+
+
+def isolated_env(base_environ: dict, home: str, dotenv_text: str) -> dict:
+    """A subprocess env in which the ONLY provider credentials are the profile's own .env:
+    every ambient provider cred is stripped, then the profile's .env is layered on. So an
+    empty-.env profile can never borrow OPENAI_API_KEY (etc.) from the parent process
+    (invariant #7 — a profile authenticates from ITS OWN secrets or not at all)."""
+    env = {k: v for k, v in base_environ.items() if not _is_provider_cred_env(k)}
+    env["HERMES_HOME"] = str(home)
+    env.update(_parse_env_file(dotenv_text))
+    return env
+
+
 class HermesProfileBackend:
     """The production backend. Every method lazily imports ``hermes_cli`` so this module
-    imports cleanly outside Hermes (tests never touch this class). ``served_models`` scopes
-    the auth+catalog probe to the profile's home via the HERMES_HOME override the map
-    verified, and fails closed to ``None`` on any error."""
+    imports cleanly outside Hermes (tests never touch this class). ``served_models`` probes the
+    live catalog in a SUBPROCESS whose env has ambient provider creds scrubbed and only the
+    profile's own .env layered on, so it fails closed to ``None`` and can't be shadowed."""
+
+    def __init__(self) -> None:
+        self._served_cache: dict[str, "list[str] | None"] = {}
 
     def list_profiles(self) -> list[str]:
         from hermes_cli import profiles as _p
@@ -191,38 +227,54 @@ class HermesProfileBackend:
             pass
 
     def auth_ok(self, name: str) -> bool:
-        return self._served(name) not in (None,) and self._auth_status(name)
+        # A profile is authenticated iff it serves a live catalog from ITS OWN creds.
+        return bool(self._served_cached(name))
 
     def served_models(self, name: str) -> list[str] | None:
-        return self._served(name)
+        return self._served_cached(name)
 
     # -- internals --------------------------------------------------------
 
-    def _auth_status(self, name: str) -> bool:
-        try:
-            from hermes_cli import auth, hermes_constants, profiles as _p
-            tok = hermes_constants.set_hermes_home_override(str(_p.get_profile_dir(name)))
-            try:
-                pid = self._provider_id(name)
-                return bool(auth.get_auth_status(pid).get("logged_in"))
-            finally:
-                hermes_constants.reset_hermes_home_override(tok)
-        except Exception:  # noqa: BLE001
-            return False
+    def _served_cached(self, name: str) -> list[str] | None:
+        if name not in self._served_cache:
+            self._served_cache[name] = self._served(name)
+        return self._served_cache[name]
 
     def _served(self, name: str) -> list[str] | None:
-        """Live GET <base>/models scoped to the profile home. None on any failure — the
-        fail-closed source of truth (NOT the curated/models.dev/openrouter merge)."""
+        """Live GET <base>/models for the profile, probed in a SUBPROCESS whose env has ambient
+        provider creds SCRUBBED and only the profile's own .env layered on (``isolated_env``), so
+        an empty-.env profile can't be shadowed by OPENAI_API_KEY (etc.) in the parent. None on
+        any failure — the fail-closed source of truth (NOT the curated/models.dev/openrouter merge)."""
+        import json
+        import os
+        import subprocess
+        import sys
         try:
-            from hermes_cli import auth, hermes_constants, models, profiles as _p
-            tok = hermes_constants.set_hermes_home_override(str(_p.get_profile_dir(name)))
-            try:
-                pid = self._provider_id(name)
-                creds = auth.resolve_api_key_provider_credentials(pid)
-                served = models.fetch_api_models(creds["api_key"], creds["base_url"], timeout=5.0)
-                return list(served) if served else None
-            finally:
-                hermes_constants.reset_hermes_home_override(tok)
+            from hermes_cli import profiles as _p
+            home = str(_p.get_profile_dir(name))
+            pid = self._provider_id(name)
+        except Exception:  # noqa: BLE001
+            return None
+        try:
+            with open(os.path.join(home, ".env"), "r", encoding="utf-8") as fh:
+                dotenv = fh.read()
+        except OSError:
+            dotenv = ""
+        probe = (
+            "import json;"
+            "from hermes_cli import auth, models;"
+            f"c=auth.resolve_api_key_provider_credentials({pid!r});"
+            "m=models.fetch_api_models(c.get('api_key') or '', c.get('base_url') or '', timeout=5.0);"
+            "print(json.dumps(list(m) if m else []))"
+        )
+        try:
+            r = subprocess.run([sys.executable, "-c", probe],
+                               env=isolated_env(os.environ, home, dotenv),
+                               capture_output=True, text=True, timeout=12)
+            if r.returncode != 0:
+                return None
+            served = json.loads((r.stdout or "").strip() or "[]")
+            return list(served) or None
         except Exception:  # noqa: BLE001
             return None
 

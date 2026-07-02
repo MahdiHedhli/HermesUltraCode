@@ -115,6 +115,33 @@ class ReadinessTest(unittest.TestCase):
         self.assertEqual(r.served_count, 2)
 
 
+class ServedModelScrubTest(unittest.TestCase):
+    """Invariant #7: an empty-.env profile must NOT authenticate off ambient provider env. The
+    served-model probe runs in a subprocess whose env is built by isolated_env — proven here to
+    strip ambient provider creds so an empty .env yields NO usable key."""
+
+    def test_provider_cred_env_detection(self):
+        from adapters.profiles import _is_provider_cred_env
+        for k in ("OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "XAI_API_KEY"):
+            self.assertTrue(_is_provider_cred_env(k), k)
+        for k in ("PATH", "HOME", "HERMES_HOME", "LANG"):
+            self.assertFalse(_is_provider_cred_env(k), k)
+
+    def test_empty_env_profile_gets_no_key_despite_ambient(self):
+        from adapters.profiles import isolated_env
+        env = isolated_env({"OPENAI_API_KEY": "ambient-shadow", "PATH": "/usr/bin"},
+                           "/home/p", dotenv_text="")     # empty profile .env
+        self.assertNotIn("OPENAI_API_KEY", env)           # ambient key STRIPPED -> not-ready
+        self.assertEqual(env["HERMES_HOME"], "/home/p")
+        self.assertEqual(env["PATH"], "/usr/bin")         # non-cred env preserved
+
+    def test_profile_own_env_is_the_only_cred(self):
+        from adapters.profiles import isolated_env
+        env = isolated_env({"OPENAI_API_KEY": "ambient"}, "/home/p",
+                           dotenv_text="# c\nOPENAI_API_KEY=profkey\n")
+        self.assertEqual(env["OPENAI_API_KEY"], "profkey")   # the PROFILE's key wins, not ambient
+
+
 class ReapTest(unittest.TestCase):
     def test_refcount_never_reaps_referenced_or_static(self):
         b = FakeBackend(existing={"m1", "m2", "static1"})
