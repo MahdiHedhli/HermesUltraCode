@@ -38,7 +38,7 @@ class KanbanBackend(Protocol):
     def list_ready(self) -> list: ...                       # ready lane tasks on THIS board only
     def claim(self, task_id: str, claimer: str) -> bool: ...  # atomic ready->running
     def create(self, goal: str, tag: str) -> str: ...       # create a lane task on THIS board
-    def open_assignees(self) -> set: ...                    # assignees of non-terminal tasks on THIS board
+    def referenced_profiles(self) -> set: ...               # profiles routed-to by non-terminal tasks (incl blocked)
     def add_comment(self, task_id: str, author: str, body: str) -> None: ...
     def block(self, task_id: str, reason: str) -> bool: ...
     def spawn(self, profile: str, model: str | None, prompt: str, workspace: str | None) -> int | None: ...
@@ -274,14 +274,23 @@ class HermesKanbanBackend:
             kanban_db.promote_task(conn, tid, actor=LANE_ASSIGNEE, reason="ultracode enqueue")
         return tid
 
-    def open_assignees(self) -> set:
+    def referenced_profiles(self) -> set:
+        """Profiles routed-to by NON-TERMINAL tasks on this board (from each task's route tag),
+        `blocked` included — so a blocked-pre-promotion task protects its profile from reaping.
+        Delegates the terminal/non-terminal decision to the pure ``profiles.referenced_profiles``."""
         from hermes_cli import kanban_db
+
+        from adapters.profiles import NON_TERMINAL_STATUSES
+        from adapters.profiles import referenced_profiles as _ref
+        from core.task_tag import parse_tag
         conn = self._conn()
-        out: set[str] = set()
-        for status in ("todo", "ready", "running", "triage", "blocked"):
-            out |= {getattr(t, "assignee", "") for t in kanban_db.list_tasks(conn, status=status)
-                    if getattr(t, "assignee", "")}
-        return out
+        rows = []
+        for status in NON_TERMINAL_STATUSES:
+            for t in kanban_db.list_tasks(conn, status=status):
+                comments = "\n".join(c.body for c in kanban_db.list_comments(conn, t.id))
+                tag = parse_tag(comments, native_model=getattr(t, "model_override", None))
+                rows.append((status, tag.profile if tag else None))
+        return _ref(rows)
 
     def add_comment(self, task_id: str, author: str, body: str) -> None:
         from hermes_cli import kanban_db

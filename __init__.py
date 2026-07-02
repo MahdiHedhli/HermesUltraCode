@@ -631,7 +631,8 @@ def _register_control_cli(ctx) -> None:
             return
         roster_obj = load_roster(path)
         _ensure_board(roster_obj.board)                # self-healing: create-if-absent
-        rep = reconcile(roster_obj, HermesProfileBackend())
+        pb = HermesProfileBackend()
+        rep = reconcile(roster_obj, pb)
         _write_reconcile_status(rep, path)
         print(f"\n  created : {', '.join(rep.created) or '-'}")
         print(f"  ready   : {', '.join(rep.ready) or '-'}")
@@ -639,7 +640,24 @@ def _register_control_cli(ctx) -> None:
             print(f"  NOT READY: {r.profile} — {r.reason}")
         for e in rep.errors:
             print(f"  error   : {e}")
-        print(f"\n  {'✓ all declared profiles ready' if rep.ok() else '✗ reconciliation incomplete (fail-closed)'}\n")
+        print(f"\n  {'✓ all declared profiles ready' if rep.ok() else '✗ reconciliation incomplete (fail-closed)'}")
+
+        # Reap orphaned MANAGED profiles (out of band): never declared, never referenced by a
+        # non-terminal task on the board (blocked included), marker-guarded so a user profile
+        # is never touched.
+        try:
+            from adapters.kanban_lane import HermesKanbanBackend
+            from adapters.profiles import reap_managed
+            declared = {p.profile for p in roster_obj.providers}
+            referenced = HermesKanbanBackend(board=roster_obj.board).referenced_profiles()
+            reapable = reap_managed(pb.managed_profiles(), declared, referenced, pb)
+            for name in reapable:
+                ok_del = pb.delete_profile(name)
+                print(f"  reaped managed profile: {name}" + ("" if ok_del else " (delete skipped)"))
+            print("  reap: no orphaned managed profiles" if not reapable else "")
+        except Exception as exc:  # noqa: BLE001 - reap is best-effort, never blocks reconcile
+            print(f"  reap skipped: {exc}")
+        print()
 
     def setup_handler(_args) -> None:
         _ensure_importable()

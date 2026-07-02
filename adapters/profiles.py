@@ -69,6 +69,9 @@ class ReconcileReport:
 # Names the router/reconciler must never reap or collide with.
 _RESERVED = frozenset({"default", "hermes", "test", "tmp", "root", "sudo"})
 
+# Marker file dropped in a profile dir at creation so reap can only ever touch OUR profiles.
+_MANAGED_MARKER = ".ultracode-managed"
+
 
 def valid_profile_name(name: str) -> bool:
     """`_PROFILE_ID_RE` = ^[a-z0-9][a-z0-9_-]{0,63}$ and not reserved (mirrors Hermes)."""
@@ -146,15 +149,29 @@ def reconcile(roster: Roster, backend: ProfileBackend) -> ReconcileReport:
     return report
 
 
+# A task in any of these statuses is a LIVE reference to its routed profile. `blocked` is
+# included on purpose: an enqueued task is created blocked and only promoted to ready after
+# validation, so a blocked-pre-promotion task must still protect its profile from reaping.
+NON_TERMINAL_STATUSES = frozenset({"triage", "todo", "scheduled", "ready", "running",
+                                   "blocked", "review"})
+
+
+def referenced_profiles(task_rows: Iterable[tuple[str, str | None]]) -> set[str]:
+    """Profiles referenced by a NON-TERMINAL task. ``task_rows`` is (status, routed_profile)
+    pairs — the routed profile comes from each task's route tag. ``done``/``archived`` tasks
+    are terminal and release their reference; everything else (incl. ``blocked``) holds it."""
+    return {prof for status, prof in task_rows if prof and status in NON_TERMINAL_STATUSES}
+
+
 def reap_managed(managed: Iterable[str], declared_static: Iterable[str],
-                 open_assignees: Iterable[str], backend: ProfileBackend) -> list[str]:
+                 referenced: Iterable[str], backend: ProfileBackend) -> list[str]:
     """Return the managed dynamic profiles safe to reap: only ones NOT declared static and
-    NOT referenced by any non-terminal task's assignee (refcount). Never reaps a declared
-    static profile or one with an open assignee. (Actual deletion is the caller's; this is
-    the pure, testable decision.)"""
+    NOT referenced by any non-terminal task (refcount, ``blocked`` included). Never reaps a
+    declared static profile or one an open task routes to. (Actual deletion is the caller's;
+    this is the pure, testable decision.)"""
     static = set(declared_static)
-    referenced = set(open_assignees)
-    return [m for m in managed if m not in static and m not in referenced and backend.profile_exists(m)]
+    live = set(referenced)
+    return [m for m in managed if m not in static and m not in live and backend.profile_exists(m)]
 
 
 # ---------------------------------------------------------------------------
@@ -213,9 +230,44 @@ class HermesProfileBackend:
         return bool(_p.profile_exists(name))
 
     def create_profile(self, name: str, *, clone_from: str | None, description: str) -> None:
+        import os
         from hermes_cli import profiles as _p
         # clone_config=False + no clone_all: bootstraps dirs + an EMPTY .env; copies NO secret.
         _p.create_profile(name, clone_from=clone_from, clone_config=False, description=description)
+        # Drop a marker so reap can only ever touch profiles WE created (never a user profile).
+        try:
+            with open(os.path.join(str(_p.get_profile_dir(name)), _MANAGED_MARKER), "w") as fh:
+                fh.write("created by hermesultracode\n")
+        except OSError:
+            pass
+
+    def managed_profiles(self) -> list[str]:
+        """Only profiles HermesUltraCode created (carry the marker) are reap candidates."""
+        import os
+        from hermes_cli import profiles as _p
+        out = []
+        for name in self.list_profiles():
+            try:
+                if os.path.exists(os.path.join(str(_p.get_profile_dir(name)), _MANAGED_MARKER)):
+                    out.append(name)
+            except OSError:
+                continue
+        return out
+
+    def delete_profile(self, name: str) -> bool:
+        """Delete a MANAGED profile only (guarded by the marker). Best-effort, never raises."""
+        import os
+        from hermes_cli import profiles as _p
+        try:
+            if not os.path.exists(os.path.join(str(_p.get_profile_dir(name)), _MANAGED_MARKER)):
+                return False                       # refuse to delete an unmanaged (user) profile
+            remove = getattr(_p, "remove_profile", None) or getattr(_p, "delete_profile", None)
+            if remove:
+                remove(name)
+                return True
+        except Exception:  # noqa: BLE001
+            pass
+        return False
 
     def set_description(self, name: str, text: str) -> None:
         try:

@@ -29,7 +29,7 @@ class RecordingCtx:
 
 # Control-plane tokens that must NEVER appear inside an agent-tool registration.
 _FORBIDDEN = ("reconcile", "create_profile", "reap", "validate_ready", "plan_roster",
-              "roster", "credential", "create_board", "ensure_board")
+              "roster", "credential", "create_board", "ensure_board", "delete_profile")
 
 
 class ControlPlaneSafetyTest(unittest.TestCase):

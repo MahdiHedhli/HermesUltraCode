@@ -146,12 +146,30 @@ class ReapTest(unittest.TestCase):
     def test_refcount_never_reaps_referenced_or_static(self):
         b = FakeBackend(existing={"m1", "m2", "static1"})
         out = reap_managed(managed=["m1", "m2", "static1"], declared_static=["static1"],
-                           open_assignees=["m2"], backend=b)
+                           referenced=["m2"], backend=b)
         self.assertEqual(out, ["m1"])   # m2 referenced, static1 declared -> only m1 reapable
 
     def test_reap_skips_absent(self):
         b = FakeBackend(existing={"m1"})
         self.assertEqual(reap_managed(["m1", "ghost"], [], [], b), ["m1"])
+
+    def test_referenced_profiles_blocked_counts_terminal_does_not(self):
+        from adapters.profiles import referenced_profiles
+        rows = [("blocked", "claude"), ("ready", "codex"), ("running", "xai"),
+                ("done", "opus"), ("archived", "haiku"), ("todo", None)]
+        # blocked/ready/running hold their reference; done/archived release it; no-tag ignored
+        self.assertEqual(referenced_profiles(rows), {"claude", "codex", "xai"})
+
+    def test_blocked_pre_promotion_task_protects_its_profile(self):
+        # THE case that matters: a task is created `blocked` and only promoted to ready after
+        # validation, so a blocked-pre-promotion task tagged to a profile must protect it.
+        from adapters.profiles import referenced_profiles
+        b = FakeBackend(existing={"claude", "orphan"})
+        referenced = referenced_profiles([("blocked", "claude")])
+        reapable = reap_managed(managed=["claude", "orphan"], declared_static=[],
+                                referenced=referenced, backend=b)
+        self.assertNotIn("claude", reapable)   # blocked reference -> NOT reaped
+        self.assertIn("orphan", reapable)      # truly unreferenced managed profile -> reapable
 
 
 class ReconcileTest(unittest.TestCase):
