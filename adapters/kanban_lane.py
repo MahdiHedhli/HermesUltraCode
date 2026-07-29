@@ -19,7 +19,7 @@ from typing import Iterable, Protocol
 
 from adapters.profiles import ProfileBackend, Readiness, validate_ready
 from core.roster import Roster
-from core.routing import Route, RoutingError, escalate, resolve, route
+from core.routing import Route, RoutingError, next_rung, resolve, route
 from core.task_tag import RouteTag, parse_tag, serialize_tag
 from core.tiering import DispatchMeta
 
@@ -86,12 +86,13 @@ def _verdict_comment(result, tier: str, model: str | None, *, spawned: bool) -> 
             + (f" · directives: {dirs}" if dirs else ""))
 
 
-def _pick_ready(tag: RouteTag, roster: Roster, pbackend: ProfileBackend, *, cap: int = 6):
-    """Find a profile that clears the tier and is authenticated+serving the model, escalating
-    across the tier's candidates on a not-ready profile (config cascade). Returns
-    ``(profile, model, Readiness)`` — profile is None when the tier is exhausted (fail closed).
-    An escalated profile uses ITS default model, not the tag's (the tag's model was for the
-    original provider)."""
+def _pick_ready(tag: RouteTag, roster: Roster, pbackend: ProfileBackend, *, cap: int = 8):
+    """Find a profile that clears the tier and is authenticated+serving the model, stepping
+    the cascade RUNGS on a not-ready profile: the same provider's heavy slot first (model
+    cascade), then the next candidate profile (provider cascade). Returns
+    ``(profile, model, Readiness)`` — profile is None when the ladder is exhausted (fail
+    closed). An escalated profile uses ITS resolved model, not the tag's (the tag's model
+    was for the original provider)."""
     prof = roster.provider(tag.profile)
     model = tag.model or (resolve(prof, tag.tier) if prof else None)
     cur = Route(tag.profile, prof.lab if prof else "", tag.tier)
@@ -103,12 +104,11 @@ def _pick_ready(tag: RouteTag, roster: Roster, pbackend: ProfileBackend, *, cap:
             last = validate_ready(cur.profile, {model} if model else set(), pbackend)
             if last.ready:
                 return cur.profile, model, last
-        nxt = escalate(cur, tag.tier, roster)
-        if nxt is None:
+        rung = next_rung(cur, model, tag.tier, roster)
+        if rung is None:
             return None, None, last
-        cur = nxt
+        cur, model = rung
         prof = roster.provider(cur.profile)
-        model = resolve(prof, tag.tier) if prof else None
     return None, None, last
 
 

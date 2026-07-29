@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-black?style=flat-square)](LICENSE)
 &nbsp;![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)
 &nbsp;![Runtime deps: 0](https://img.shields.io/badge/runtime_deps-0-2ea043?style=flat-square)
-&nbsp;![Tests: 270 passing](https://img.shields.io/badge/tests-270_passing-2ea043?style=flat-square)
+&nbsp;![Tests: 278 passing](https://img.shields.io/badge/tests-278_passing-2ea043?style=flat-square)
 &nbsp;![Hermes plugin + skill](https://img.shields.io/badge/Hermes-plugin_%2B_skill-7c3aed?style=flat-square)
 &nbsp;![Degrades: fail-closed](https://img.shields.io/badge/degrades-fail--closed-e5604d?style=flat-square)
 
@@ -74,7 +74,7 @@ orchestrator base prompt ─▶ [ GATE ] ─▶ dispatched prompt ─▶ worker
   catches the blind spots a same-lineage model waves through. ([more ↓](#cross-lab-review))
 - 🧾 **Audited like evidence** — one immutable, secret-redacted row per dispatch;
   `UPDATE`/`DELETE` blocked at the database; JSON/CSV export.
-- 🪶 **Zero runtime dependencies** — stdlib-only core, **270 offline tests**, the model
+- 🪶 **Zero runtime dependencies** — stdlib-only core, **278 offline tests**, the model
   provider mocked.
 
 ## The eight non-negotiable invariants
@@ -342,10 +342,14 @@ and the dashboard. Tune with `HERMESULTRACODE_LOCAL_BIAS`, `…_LOCAL_TRUSTED_TI
 </p>
 <p align="center"><sub>The <b>Cost</b> sub-tab — <b>dollars saved vs an all-cloud baseline</b>, the local-vs-cloud split, and a per-dispatch table of <i>what the router picked and why</i>. Standard/trivial work lands on the local model; <code>elevated</code>/<code>merge_adjacent</code> is risk-gated to cloud regardless of price.</sub></p>
 
-**③ Per-task binding (upstream).** Hermes binds the worker model from one *global* delegation
-block, so true per-task routing needs a small, additive Hermes change. The advisory router
-flips to *binding* with a one-line adapter change the day it lands — see
-[docs/upstream-routing.md](docs/upstream-routing.md).
+**③ Per-task binding (the ultracode lane).** Hermes binds `delegate_task` workers from one
+*global* delegation block, and upstream **declined** per-call/per-task selection
+([#41190](https://github.com/NousResearch/hermes-agent/issues/41190) closed not-planned — see
+the [decision record](docs/upstream-routing.md)). So the router stays **advisory** on
+`delegate_task` — and when binding routing matters, route the work through the
+**[Kanban worker lane](#kanban-worker-lane--profile-routing)**, whose poller binds
+`-m <model>` at its own spawn. That lane is where tier→model selection and the failure
+cascade run for real.
 
 > Routing is a **sibling** of the security gate, not part of it: the gate stays tighten-only /
 > fail-closed; the router is a separate, deterministic cost/observability layer. Risk overrides
@@ -466,12 +470,16 @@ routing, and per-profile readiness:
   <img src="docs/dashboard-tab-roster.png" alt="The Roster tab — live cross-lab reviewer badge, topology, risk-tier routing, and fail-closed profile readiness" width="860">
 </p>
 
-**Ships today vs deferred.** Provider routing, the local floor, the gate, the dedicated board,
-and fail-closed enqueue all work now. **Per-task model-tier selection** (Sonnet-vs-Opus *within*
-a provider) is deferred until the upstream **Part A** field lands — `core.routing.resolve()` is
-a stub returning the profile default, on the same call path, so filling it later is a swap not a
-refactor. Part A (a nullable `model` on the Kanban task, threaded into the dispatcher spawn) is
-a tight diff on a fork of `hermes-agent`; **[MoA (Mixture of Agents)](https://github.com/NousResearch/hermes-agent)**
+**It all ships today — the lane is the binding surface.** Provider routing, the local floor,
+the gate, the dedicated board, fail-closed enqueue, **per-task model-tier selection**
+(Sonnet-vs-Opus *within* a provider via the roster's operator-supplied `tiers:` slots) and the
+**verified-failure cascade** (the same provider's heavy slot first, then the next profile) are
+all live. No upstream seam is needed: the lane's poller binds `-m <model>` at its own spawn.
+Upstream explicitly declined per-call/per-task model selection
+([#41190](https://github.com/NousResearch/hermes-agent/issues/41190) closed not-planned — see
+the [decision record](docs/upstream-routing.md)), which makes this lane the only per-task-model
+routing surface in the Hermes ecosystem; stock profile lanes stay config-level, matching
+upstream's design. **[MoA (Mixture of Agents)](https://github.com/NousResearch/hermes-agent)**
 composes as a high-quality *tier candidate* (an MoA preset is just a roster profile the router
 can route elevated/merge work to) — deliberately not rebuilt here.
 

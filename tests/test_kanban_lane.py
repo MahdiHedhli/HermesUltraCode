@@ -156,6 +156,26 @@ class ProcessTest(unittest.TestCase):
         self.assertEqual(g.calls, 0)
         self.assertIn("no route tag", out.reason)
 
+    def test_model_cascade_rescues_within_provider(self):
+        # claude's cheap slot isn't served but its heavy slot IS: the rung cascade steps to
+        # heavy on the SAME profile instead of spilling to the next provider.
+        r = Roster.from_dict({
+            "orchestrator": {"profile": "orch", "lab": "anthropic"},
+            "reviewer": None, "reviewer_mode": "off",
+            "providers": [
+                {"profile": "claude", "provider": "a", "lab": "anthropic",
+                 "tiers": {"cheap": "sonnet", "heavy": "opus"}},
+                {"profile": "xai", "provider": "x", "lab": "xai"},
+            ],
+            "routing": {"standard": ["claude", "xai"]}})
+        pb = PB(auth={"claude"}, served={"claude": ["opus"]})       # only heavy served
+        k, g = FakeKanban(), FakeGate(FakeResult(True))
+        out = process_claimed_task(
+            FakeTask(comments=serialize_tag("claude", "standard", "sonnet")), r, g, k, pb)
+        self.assertEqual(out.action, "spawned")
+        self.assertEqual(k.spawns[0][0], "claude")                  # same provider
+        self.assertEqual(k.spawns[0][1], "opus")                    # heavier model rung
+
     def test_native_model_override_wins(self):
         pb = PB(auth={"claude"}, served={"claude": ["native/model"]})
         k, g = FakeKanban(), FakeGate(FakeResult(True))

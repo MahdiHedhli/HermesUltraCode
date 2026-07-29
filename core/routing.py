@@ -4,9 +4,11 @@ import, no network. It MATCHES an existing profile or fails closed (invariant #6
 creates one). Tier is a RISK floor (invariant #4); the working model within the floor is
 decided by the cascade (invariant #5), not predicted here.
 
-``resolve`` is a deliberate STUB until the Part A per-task ``model`` field merges upstream:
-it returns the provider profile's default model (``tier`` ignored). The call path is the
-same now and post-PR, so filling the body later is a swap, not a refactor.
+``resolve`` is LIVE (it was stubbed while a per-task model field was pending upstream;
+upstream closed per-call/per-task selection as not-planned — see docs/upstream-routing.md —
+and the ultracode lane binds ``-m`` at its own spawn, so the tier->model table applies today
+with no upstream seam). ``next_rung`` is the cascade step: the same provider's stronger slot
+first (model cascade), then the next candidate profile (provider cascade).
 """
 
 from __future__ import annotations
@@ -14,6 +16,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from core.roster import ProviderProfile, Roster
+
+# Risk tier -> the operator's slot name in a provider's `tiers:` mapping. Low-risk tiers
+# draw the cheap slot; escalating tiers draw the heavy slot (the model floor rises with
+# risk). A direct risk-tier key in `tiers:` (e.g. `standard: <slug>`) overrides the slot.
+_TIER_SLOT = {
+    "trivial": "cheap",
+    "standard": "cheap",
+    "elevated": "heavy",
+    "merge_adjacent": "heavy",
+}
 
 
 class RoutingError(RuntimeError):
@@ -57,14 +69,43 @@ def escalate(prev: Route, tier: str, roster: Roster) -> Route | None:
     return None
 
 
+def _slot_value(provider: ProviderProfile, key: str) -> str | None:
+    """An operator-supplied model slug from the provider's ``tiers:`` mapping. ``<SLOT>``
+    placeholders (an unfilled roster) read as absent — we never invent a model."""
+    v = (provider.tiers or {}).get(key)
+    v = str(v).strip() if v else ""
+    return v if v and not v.startswith("<") else None
+
+
 def resolve(provider: ProviderProfile, tier: str) -> str | None:
-    """STUB (until Part A's per-task model field lands): return the provider profile's
-    DEFAULT model; ``tier`` is ignored. ``None`` means "inherit the profile's own config
-    default" (don't pass --model). Post-PR this becomes ``provider.tiers.get(tier)`` with a
-    floor lookup — same signature, same callers, no refactor."""
+    """Tier-aware model lookup (the tier-to-model FLOOR): a direct risk-tier key in the
+    provider's ``tiers:`` wins, then the cheap/heavy slot for the tier, then the pinned
+    profile default. ``None`` means "inherit the profile's own config default" (the lane
+    passes no ``-m``). Slugs are OPERATOR-supplied in the roster; never invented here."""
     if provider is None:
         return None
-    return provider.model or None
+    return (_slot_value(provider, tier)
+            or _slot_value(provider, _TIER_SLOT.get(tier, ""))
+            or provider.model
+            or None)
+
+
+def next_rung(prev: Route, prev_model: str | None, tier: str,
+              roster: Roster) -> tuple[Route, str | None] | None:
+    """The next-stronger rung after a VERIFIED failure or a not-ready profile: first the
+    SAME provider's heavy slot (model cascade within one provider — live now that the lane
+    binds ``-m`` itself), then the next candidate profile with its resolved model (provider
+    cascade). ``None`` when the tier's ladder is exhausted (the caller fails closed)."""
+    prof = roster.provider(prev.profile)
+    if prof is not None:
+        heavy = _slot_value(prof, "heavy")
+        if heavy and heavy != prev_model:
+            return prev, heavy                      # step up within the provider first
+    nxt = escalate(prev, tier, roster)
+    if nxt is None:
+        return None
+    nprof = roster.provider(nxt.profile)
+    return nxt, resolve(nprof, tier)
 
 
 def _candidates(tier: str, roster: Roster) -> list[ProviderProfile]:

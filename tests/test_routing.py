@@ -49,11 +49,55 @@ class RoutingTest(unittest.TestCase):
         self.assertEqual(nxt.profile, "claude")
         self.assertIsNone(escalate(Route("claude", "anthropic", "standard"), "standard", r))
 
-    def test_resolve_stub_returns_profile_default(self):
-        r = roster()
-        self.assertEqual(resolve(r.provider("gemma-local"), "elevated"), "gemma-4-31b")  # tier ignored
-        self.assertIsNone(resolve(r.provider("claude"), "standard"))   # no pinned model => inherit
+    def test_resolve_is_tier_aware(self):
+        # LIVE (was stubbed while a per-task upstream field was pending; upstream refused
+        # per-call/per-task selection, and the lane binds -m itself, so the table applies now).
+        from core.roster import Roster as _R
+        r = _R.from_dict({
+            "orchestrator": {"profile": "orch", "lab": "anthropic"}, "reviewer": None,
+            "reviewer_mode": "off",
+            "providers": [
+                {"profile": "claude", "provider": "a", "lab": "anthropic",
+                 "tiers": {"cheap": "sonnet", "heavy": "opus", "standard": "sonnet-direct"}},
+                {"profile": "slots-empty", "provider": "b", "lab": "openai",
+                 "model": "pinned", "tiers": {"cheap": "<SLOT>", "heavy": "<SLOT>"}},
+            ],
+            "routing": {"standard": ["claude"]}})
+        c = r.provider("claude")
+        self.assertEqual(resolve(c, "trivial"), "sonnet")          # low risk -> cheap slot
+        self.assertEqual(resolve(c, "elevated"), "opus")           # escalating -> heavy slot
+        self.assertEqual(resolve(c, "merge_adjacent"), "opus")
+        self.assertEqual(resolve(c, "standard"), "sonnet-direct")  # direct tier key overrides slot
+        e = r.provider("slots-empty")
+        self.assertEqual(resolve(e, "standard"), "pinned")         # <SLOT> ignored -> pinned default
         self.assertIsNone(resolve(None, "standard"))
+
+    def test_resolve_without_tiers_falls_back_to_default(self):
+        r = roster()   # providers here declare no tiers slots
+        self.assertEqual(resolve(r.provider("gemma-local"), "elevated"), "gemma-4-31b")
+        self.assertIsNone(resolve(r.provider("claude"), "standard"))  # no slots, no pin => inherit
+
+    def test_next_rung_model_then_provider_cascade(self):
+        from core.roster import Roster as _R
+        from core.routing import next_rung
+        r = _R.from_dict({
+            "orchestrator": {"profile": "orch", "lab": "anthropic"}, "reviewer": None,
+            "reviewer_mode": "off",
+            "providers": [
+                {"profile": "claude", "provider": "a", "lab": "anthropic",
+                 "tiers": {"cheap": "sonnet", "heavy": "opus"}},
+                {"profile": "xai", "provider": "x", "lab": "xai", "model": "grok"},
+            ],
+            "routing": {"standard": ["claude", "xai"]}})
+        start = Route("claude", "anthropic", "standard")
+        # rung 1: same provider, heavy slot (model cascade)
+        r1 = next_rung(start, "sonnet", "standard", r)
+        self.assertEqual((r1[0].profile, r1[1]), ("claude", "opus"))
+        # rung 2: already on heavy -> next profile with ITS model (provider cascade)
+        r2 = next_rung(r1[0], r1[1], "standard", r)
+        self.assertEqual((r2[0].profile, r2[1]), ("xai", "grok"))
+        # rung 3: ladder exhausted -> None (caller fails closed)
+        self.assertIsNone(next_rung(r2[0], r2[1], "standard", r))
 
 
 if __name__ == "__main__":

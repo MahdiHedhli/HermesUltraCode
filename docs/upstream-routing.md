@@ -1,63 +1,54 @@
-# Upstream proposal: per-task model/provider selection in Hermes `delegate_task`
+# Decision record: per-task model routing lives in the ultracode lane, not upstream
 
-**Status:** draft for a Hermes PR. HermesUltraCode ships the routing *brain* today as an
-advisory layer (`HERMESULTRACODE_ROUTING=1`); this is the one upstream change that lets it
-*bind* per task instead of only annotating the audit row.
+**Status:** RESOLVED (July 2026). The original proposal below was overtaken by an explicit
+upstream decision, and HermesUltraCode is designed around it.
 
-## The gap
+## The upstream decision
 
-Hermes can already run a subagent on a different `provider:model` pair, including a local
-OpenAI-compatible endpoint (LM Studio, Ollama). But the binding is resolved from **one
-global `delegation:` config block**, the same value for every subagent:
+- [NousResearch/hermes-agent#41190](https://github.com/NousResearch/hermes-agent/issues/41190)
+  (unified plugin route selector for per-turn/per-call provider+model override) was **closed
+  `not-planned`** by the maintainer (July 14, 2026).
+- The sanctioned re-scope, verbatim: *"A focused contribution improving the existing
+  **config-level** delegation routing path, without introducing per-call or per-task
+  selection, would be an appropriate re-scope."*
+- Sibling issues asking for a `model` param on `delegate_task` (#44900, #32711) were swept
+  closed; the per-call PRs referenced there were not merged. **Per-call / per-task model
+  selection is refused upstream as a category**, not just as one issue.
 
-- `tools/delegate_tool.py` → `_resolve_delegation_credentials(cfg, parent_agent)` reads
-  `delegation.base_url / model / provider / api_mode` and returns one credential bundle.
-- The agent-facing tool handler extracts `goal / context / toolsets / tasks / role /
-  background` from the call args (`delegate_tool.py` ~`:3112`) — there is **no `model`**
-  read from the per-call args, so a caller (or a middleware like the UltraCode gate) cannot
-  request a model per dispatch.
-- The spawn path already *accepts* a model (`spawn(..., model=...)` ~`:779/:826`) and
-  resolves `creds["model"] / creds["provider"]` (~`:2228`), so the plumbing exists — it is
-  just not reachable per task.
+## What HermesUltraCode does about it
 
-Net: an orchestrator that wants cheap tasks on a local box and hard tasks on a frontier
-model has no per-task lever. Cost-aware routing can decide, but cannot act.
+1. **The ultracode Kanban lane is the binding surface.** The lane's poller spawns
+   `hermes -p <profile> -m <model>` itself, so per-task model binding needs **no upstream
+   seam**. `core/routing.py::resolve()` (the tier→model floor lookup over the roster's
+   operator-supplied `tiers:` slots) and `next_rung()` (model cascade within a provider,
+   then provider cascade) are **live** — they were stubbed only while an upstream per-task
+   field looked possible.
+2. **`delegate_task` stays two-layer:** the gate **binds** (safety: tighten-only,
+   fail-closed) and the cost router **annotates** (advisory: the model it *would* pick +
+   dollars saved). It cannot bind — upstream refused the seam — so when binding routing
+   matters, route the work through the **ultracode board** instead of `delegate_task`.
+   That is the documented pattern, not a workaround.
+3. **Stock profile lanes stay config-level** (the profile's default model), matching
+   upstream's own design. The parked fork branch
+   [`feat/kanban-task-model`](https://github.com/NousResearch/hermes-agent/compare/main...MahdiHedhli:feat/kanban-task-model)
+   (the tiny `create_task` write path + surfaces for the existing `model_override` column)
+   stays unopened unless upstream policy shifts.
+4. **Upstream contributions target the sanctioned lane:** improvements to the
+   **config-level delegation routing path** — e.g. open fail-open/robustness bugs in it
+   (#49095: `delegation.provider` silently falls back to openrouter/free; #49417: subagents
+   don't inherit the parent's `fallback_providers` chain). Fail-closed delegation routing
+   is precisely this project's competence.
 
-## Proposed change (minimal, additive, backward-compatible)
+## Why this is fine (and even good)
 
-Let a single delegation be overridden per call, falling back to the global block when
-absent. Two equally small options:
+The refusal costs the plugin nothing — every binding path it needs, it owns. And it makes
+the ultracode lane the only per-task-model routing surface in the Hermes ecosystem: tier
+floors, operator-supplied model slots, a verified-failure cascade, and a cross-lab-reviewed
+gate in front of every dispatch.
 
-1. **Per-task override (preferred).** Accept optional `model` (and optional `provider`) on
-   a task and on the single-task form, threaded into `_resolve_delegation_credentials` as
-   an override that wins over `cfg` but inherits everything else (api_key, base_url):
-   ```python
-   delegate_task(tasks=[
-     {"goal": "...", "model": "local/gemma-4-31b"},      # cheap/free
-     {"goal": "...", "model": "anthropic/claude-opus"},  # hard
-   ])
-   ```
-2. **Role → delegation profile map.** Add `delegation.profiles: {role: {provider, model,
-   base_url}}` and select by the existing `role` arg (already read at `:3119`). Routers set
-   `role`; no new arg surface.
+---
 
-Either way: when no override/profile is given, behavior is **identical to today** (the
-global `delegation:` block), so it is safe to land dark.
-
-## How HermesUltraCode would use it
-
-The gate's `tool_request` middleware already rewrites the `delegate_task` args per task. On
-the day this lands, `RouteDecision.model_id` (from `core/router.py:choose_worker`) is written
-onto each task (`args["model"]` or the chosen `role`) right where the directory/coordination
-directives are already appended — a one-line change in `adapters/hermes_hook.py`. The
-advisory `est_cost_usd / est_savings_usd` columns then describe *real* routing instead of a
-counterfactual.
-
-## Safety notes for reviewers
-
-- The change is **additive and opt-in**; the default path is unchanged.
-- It does not touch the cross-lab **reviewer ≠ orchestrator** rule (that is resolved
-  separately at gate/CLI startup), and HermesUltraCode keeps risk-gating local models off
-  elevated / merge-authority work regardless of cost (`core/router.py`).
-- Hermes already inherits a **fallback provider chain** for subagents (`delegate_tool.py`
-  ~`:1183`), so a down local box recovers without any new cascade logic in the plugin.
+*The original proposal (kept for history): add an optional per-task `model`/`provider`
+override to `delegate_task` (or a `delegation.profiles` role→model map) threaded into
+`_resolve_delegation_credentials`, letting the gate's `tool_request` middleware bind the
+router's decision per task. Superseded by the decision above.*
