@@ -16,6 +16,10 @@ kind: standalone
 # hook; the tighten seam is tool_request middleware (registered in code).
 provides_hooks:
   - pre_tool_call
+  - on_session_start
+  - post_tool_call
+  - subagent_start
+  - subagent_stop
 provides_tools:
   - gate_audit_query
   - gate_metrics
@@ -37,3 +41,5 @@ requires_env:
   - name: HERMESULTRACODE_REVIEWER_MODEL
     description: "Reviewer model id (default: anthropic/claude-3.5-sonnet)."
     secret: false
+provides_middleware:
+  - tool_request
